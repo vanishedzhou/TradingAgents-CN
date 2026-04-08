@@ -42,6 +42,11 @@ export default defineConfig({
   server: {
     host: '0.0.0.0',
     port: 3000,
+    allowedHosts: [
+      'all',
+      '.cloudide.woa.com',
+      'workspace3jvt41qzbzf3eqdaa3-3000.gz.cloudide.woa.com'
+    ],
     hmr: {
       overlay: false
     },
