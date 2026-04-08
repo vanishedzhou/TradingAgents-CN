@@ -11,6 +11,7 @@ from langchain_openai import ChatOpenAI
 from langchain_anthropic import ChatAnthropic
 from langchain_google_genai import ChatGoogleGenerativeAI
 from tradingagents.llm_adapters import ChatDashScopeOpenAI, ChatGoogleOpenAI
+from tradingagents.llm_adapters.codebuddy_adapter import ChatCodeBuddy, CODEBUDDY_API_KEY_ENV
 
 from langgraph.prebuilt import ToolNode
 
@@ -157,6 +158,22 @@ def create_llm_by_provider(provider: str, model: str, backend_url: str, temperat
             temperature=temperature,
             max_tokens=max_tokens,
             timeout=timeout
+        )
+
+    elif provider.lower() == "codebuddy":
+        # CodeBuddy 开放平台（腾讯内网）
+        codebuddy_api_key = api_key or os.getenv(CODEBUDDY_API_KEY_ENV)
+        if not codebuddy_api_key:
+            raise ValueError(
+                "使用 CodeBuddy 需要设置 CODEBUDDY_API_KEY 环境变量，"
+                "或在 Web 界面配置 API Key（设置 → 大模型厂家）。"
+            )
+        return ChatCodeBuddy(
+            model=model,
+            api_key=codebuddy_api_key,
+            base_url=backend_url or None,
+            temperature=temperature,
+            max_tokens=max_tokens,
         )
 
     else:
@@ -677,6 +694,43 @@ class TradingAgentsGraph:
             )
             
             logger.info("✅ [智谱AI] 已使用专用适配器配置成功并应用用户配置的模型参数")
+
+        elif self.config["llm_provider"].lower() == "codebuddy":
+            # ── CodeBuddy 开放平台（腾讯内网）────────────────────────────
+            codebuddy_api_key = (
+                self.config.get("quick_api_key")
+                or self.config.get("deep_api_key")
+                or os.getenv(CODEBUDDY_API_KEY_ENV)
+            )
+            logger.info(
+                f"🔑 [CodeBuddy] API Key 来源: "
+                f"{'数据库配置' if self.config.get('quick_api_key') or self.config.get('deep_api_key') else '环境变量'}"
+            )
+            if not codebuddy_api_key:
+                raise ValueError(
+                    "使用 CodeBuddy 需要设置 CODEBUDDY_API_KEY 环境变量，"
+                    "或在 Web 界面配置 API Key（设置 → 大模型厂家）。"
+                )
+
+            quick_config = self.config.get("quick_model_config", {})
+            deep_config  = self.config.get("deep_model_config", {})
+
+            self.deep_thinking_llm = ChatCodeBuddy(
+                model=self.config["deep_think_llm"],
+                api_key=codebuddy_api_key,
+                base_url=self.config.get("backend_url") or None,
+                temperature=deep_config.get("temperature", 0.1),
+                max_tokens=deep_config.get("max_tokens", 4000),
+            )
+            self.quick_thinking_llm = ChatCodeBuddy(
+                model=self.config["quick_think_llm"],
+                api_key=codebuddy_api_key,
+                base_url=self.config.get("backend_url") or None,
+                temperature=quick_config.get("temperature", 0.1),
+                max_tokens=quick_config.get("max_tokens", 4000),
+            )
+            logger.info("✅ [CodeBuddy] LLM 配置完成")
+
         else:
             # 🔧 通用的 OpenAI 兼容厂家支持（用于自定义厂家）
             logger.info(f"🔧 使用通用 OpenAI 兼容适配器处理自定义厂家: {self.config['llm_provider']}")
