@@ -110,6 +110,10 @@ class ChatCodeBuddy(OpenAICompatibleBase):
                 f"CodeBuddy API 大小写敏感，建议改为 '{model.lower()}'"
             )
 
+        # ⚠️ CodeBuddy 强制要求 stream=True，必须启用 streaming
+        # 否则返回 400 Bad Request
+        kwargs.setdefault("streaming", True)
+
         super().__init__(
             provider_name="codebuddy",
             model=model,
