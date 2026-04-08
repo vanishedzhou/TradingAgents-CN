@@ -104,6 +104,16 @@ async def init_providers():
             "default_base_url": "https://api.302.ai/v1",
             "is_active": True,
             "supported_features": ["chat", "completion", "embedding", "image", "vision", "function_calling", "streaming"]
+        },
+        {
+            "name": "codebuddy",
+            "display_name": "CodeBuddy（腾讯）",
+            "description": "腾讯 CodeBuddy 开放平台，聚合混元、DeepSeek、Claude、Gemini 等多种主流模型",
+            "website": "https://copilot.tencent.com",
+            "api_doc_url": "https://copilot.tencent.com",
+            "default_base_url": "https://copilot.tencent.com/v2",
+            "is_active": True,
+            "supported_features": ["chat", "completion", "function_calling", "streaming"]
         }
     ]
     
