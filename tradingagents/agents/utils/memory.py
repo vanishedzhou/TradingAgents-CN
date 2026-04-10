@@ -30,7 +30,10 @@ class ChromaDBManager:
         return cls._instance
 
     def __init__(self):
-        if not self._initialized:
+        # 用 _lock 保护初始化，防止多线程并发重复初始化
+        with self._lock:
+            if self._initialized:
+                return
             try:
                 # 使用统一的配置模块
                 from .chromadb_config import get_optimal_chromadb_client, is_windows_11
@@ -55,16 +58,25 @@ class ChromaDBManager:
                 try:
                     settings = Settings(
                         allow_reset=True,
-                        anonymized_telemetry=False,  # 关键：禁用遥测
+                        anonymized_telemetry=False,
                         is_persistent=False
                     )
                     self._client = chromadb.Client(settings)
                     logger.info(f"📚 [ChromaDB] 使用备用配置初始化完成")
+                    self._initialized = True
                 except Exception as backup_error:
-                    # 最后的备用方案
-                    self._client = chromadb.Client()
-                    logger.warning(f"⚠️ [ChromaDB] 使用最简配置初始化: {backup_error}")
-                self._initialized = True
+                    logger.error(f"❌ [ChromaDB] 备用配置失败: {backup_error}")
+                    # 最终备用方案
+                    try:
+                        self._client = chromadb.Client()
+                        logger.warning(f"⚠️ [ChromaDB] 使用最简配置初始化")
+                        self._initialized = True
+                    except Exception as final_error:
+                        logger.error(f"❌ [ChromaDB] 所有初始化方案均失败: {final_error}")
+                        # 即使初始化失败，也标记为 initialized 避免无限重试
+                        # _client 保持 None，后续 get_or_create_collection 会处理
+                        self._client = None
+                        self._initialized = True
 
     def get_or_create_collection(self, name: str):
         """线程安全地获取或创建集合"""
@@ -72,6 +84,11 @@ class ChromaDBManager:
             if name in self._collections:
                 logger.info(f"📚 [ChromaDB] 使用缓存集合: {name}")
                 return self._collections[name]
+
+            # 如果client未初始化成功，返回None
+            if self._client is None:
+                logger.error(f"❌ [ChromaDB] client未初始化，无法创建集合: {name}")
+                return None
 
             try:
                 # 尝试获取现有集合
@@ -308,7 +325,13 @@ class FinancialSituationMemory:
 
         # 使用单例ChromaDB管理器
         self.chroma_manager = ChromaDBManager()
-        self.situation_collection = self.chroma_manager.get_or_create_collection(name)
+        try:
+            self.situation_collection = self.chroma_manager.get_or_create_collection(name)
+            if self.situation_collection is None:
+                logger.warning(f"⚠️ [ChromaDB] 集合创建失败，记忆功能将被禁用")
+        except Exception as e:
+            logger.error(f"❌ [ChromaDB] 集合初始化异常: {e}，记忆功能将被禁用")
+            self.situation_collection = None
 
     def _smart_text_truncation(self, text, max_length=8192):
         """智能文本截断，保持语义完整性和缓存兼容性"""
@@ -559,6 +582,10 @@ class FinancialSituationMemory:
     def add_situations(self, situations_and_advice):
         """Add financial situations and their corresponding advice. Parameter is a list of tuples (situation, rec)"""
 
+        if self.situation_collection is None:
+            logger.warning(f"⚠️ [ChromaDB] 集合未初始化，跳过记忆存储")
+            return
+
         situations = []
         advice = []
         ids = []
@@ -582,6 +609,10 @@ class FinancialSituationMemory:
     def get_memories(self, current_situation, n_matches=1):
         """Find matching recommendations using embeddings with smart truncation handling"""
         
+        if self.situation_collection is None:
+            logger.warning(f"⚠️ [ChromaDB] 集合未初始化，返回空结果")
+            return []
+        
         # 获取当前情况的embedding
         query_embedding = self.get_embedding(current_situation)
         
@@ -591,6 +622,8 @@ class FinancialSituationMemory:
             return []
         
         # 检查是否有足够的数据进行查询
+        if self.situation_collection is None:
+            return []
         collection_count = self.situation_collection.count()
         if collection_count == 0:
             logger.debug(f"📭 记忆库为空，返回空结果")
@@ -642,7 +675,7 @@ class FinancialSituationMemory:
     def get_cache_info(self):
         """获取缓存相关信息，用于调试和监控"""
         info = {
-            'collection_count': self.situation_collection.count(),
+            'collection_count': self.situation_collection.count() if self.situation_collection else 0,
             'client_status': 'enabled' if self.client != "DISABLED" else 'disabled',
             'embedding_model': self.embedding,
             'provider': self.llm_provider
