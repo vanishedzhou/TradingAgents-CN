@@ -5,9 +5,9 @@ OpenAI兼容适配器基类
 
 import os
 import time
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, Iterator, List, Optional, Union
 from langchain_core.messages import BaseMessage
-from langchain_core.outputs import ChatResult
+from langchain_core.outputs import ChatResult, ChatGenerationChunk
 from langchain_openai import ChatOpenAI
 from langchain_core.callbacks import CallbackManagerForLLMRun
 
@@ -152,6 +152,24 @@ class OpenAICompatibleBase(ChatOpenAI):
     # 移除model_name property定义，使用Pydantic字段
     # model_name字段由ChatOpenAI基类的Pydantic字段提供
     
+    def _ensure_messages_min_length(self, messages: List[BaseMessage]) -> List[BaseMessage]:
+        """
+        确保 messages 列表长度 >= 2（部分 provider 如 CodeBuddy 要求此约束）。
+        - 0 条：插入 system + human placeholder
+        - 1 条：在开头插入 system message
+        """
+        from langchain_core.messages import SystemMessage, HumanMessage
+        if len(messages) == 0:
+            logger.warning("⚠️ [LLM] messages 为空，自动补充 system + human placeholder")
+            return [
+                SystemMessage(content="You are a helpful assistant."),
+                HumanMessage(content="Hello"),
+            ]
+        if len(messages) == 1:
+            logger.debug("⚠️ [LLM] messages 只有1条，自动补充 system message")
+            return [SystemMessage(content="You are a helpful assistant."), messages[0]]
+        return messages
+
     def _generate(
         self,
         messages: List[BaseMessage],
@@ -163,6 +181,9 @@ class OpenAICompatibleBase(ChatOpenAI):
         生成聊天响应，并记录token使用量
         """
         
+        # 确保 messages 至少 2 条（CodeBuddy 等 provider 的要求）
+        messages = self._ensure_messages_min_length(messages)
+        
         # 记录开始时间
         start_time = time.time()
         
@@ -173,6 +194,22 @@ class OpenAICompatibleBase(ChatOpenAI):
         self._track_token_usage(result, kwargs, start_time)
         
         return result
+
+    def _stream(
+        self,
+        messages: List[BaseMessage],
+        stop: Optional[List[str]] = None,
+        run_manager: Optional[CallbackManagerForLLMRun] = None,
+        **kwargs: Any,
+    ) -> Iterator[ChatGenerationChunk]:
+        """
+        流式生成聊天响应（streaming=True 时走此方法）
+        同样需要确保 messages 至少 2 条。
+        """
+        # 确保 messages 至少 2 条（CodeBuddy 等 provider 的要求）
+        messages = self._ensure_messages_min_length(messages)
+        
+        return super()._stream(messages, stop, run_manager, **kwargs)
 
     def _track_token_usage(self, result: ChatResult, kwargs: Dict, start_time: float):
         """记录token使用量并输出日志"""
