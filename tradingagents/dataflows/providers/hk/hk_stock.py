@@ -35,7 +35,15 @@ class HKStockProvider:
         logger.info(f"🇭🇰 港股数据提供器初始化完成")
 
     def _wait_for_rate_limit(self):
-        """等待速率限制"""
+        """等待速率限制（同时使用全局Yahoo Finance rate limiter）"""
+        # Use global yfinance rate limiter for cross-module coordination
+        try:
+            from tradingagents.dataflows.providers.us.yfinance import get_yf_rate_limiter
+            get_yf_rate_limiter().wait()
+        except ImportError:
+            pass
+
+        # Also enforce local interval
         current_time = time.time()
         time_since_last_request = current_time - self.last_request_time
 

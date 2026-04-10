@@ -8,6 +8,8 @@ from functools import wraps
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 import os
+import time
+import threading
 
 from tradingagents.utils.dataflow_utils import save_output, SavePathType, decorate_all_methods
 
@@ -34,11 +36,71 @@ def get_cache():
     return _cache_module() if _cache_module else None
 
 
+class YFinanceRateLimiter:
+    """
+    Global Yahoo Finance rate limiter (singleton).
+    Enforces a minimum interval between consecutive yfinance API calls
+    to avoid being rate-limited (HTTP 429).
+    """
+    _instance = None
+    _lock = threading.Lock()
+
+    def __new__(cls):
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+                    cls._instance._initialized = False
+        return cls._instance
+
+    def __init__(self):
+        if self._initialized:
+            return
+        self._last_request_time = 0.0
+        # Read interval from env: TA_YF_MIN_REQUEST_INTERVAL_SECONDS (default 2s)
+        try:
+            self._min_interval = float(os.getenv('TA_YF_MIN_REQUEST_INTERVAL_SECONDS', '2.0'))
+        except (ValueError, TypeError):
+            self._min_interval = 2.0
+        self._request_lock = threading.Lock()
+        self._initialized = True
+        logger.info(f"📊 Yahoo Finance rate limiter initialized (interval: {self._min_interval}s)")
+
+    def wait(self):
+        """Wait if necessary to respect the minimum request interval."""
+        with self._request_lock:
+            now = time.time()
+            elapsed = now - self._last_request_time
+            if elapsed < self._min_interval:
+                wait_time = self._min_interval - elapsed
+                logger.debug(f"⏳ Yahoo Finance rate limit: waiting {wait_time:.1f}s...")
+                time.sleep(wait_time)
+            self._last_request_time = time.time()
+
+    @property
+    def min_interval(self):
+        return self._min_interval
+
+    @min_interval.setter
+    def min_interval(self, value: float):
+        self._min_interval = max(0.0, value)
+
+
+# Global singleton instance
+_yf_rate_limiter = YFinanceRateLimiter()
+
+
+def get_yf_rate_limiter() -> YFinanceRateLimiter:
+    """Get the global Yahoo Finance rate limiter instance."""
+    return _yf_rate_limiter
+
+
 def init_ticker(func: Callable) -> Callable:
     """Decorator to initialize yf.Ticker and pass it to the function."""
 
     @wraps(func)
     def wrapper(symbol: Annotated[str, "ticker symbol"], *args, **kwargs) -> Any:
+        _yf_rate_limiter.wait()
         ticker = yf.Ticker(symbol)
         return func(ticker, *args, **kwargs)
 
@@ -158,6 +220,9 @@ def get_stock_data_with_indicators(
         # 验证日期格式
         datetime.strptime(start_date, "%Y-%m-%d")
         datetime.strptime(end_date, "%Y-%m-%d")
+
+        # Rate limit before API call
+        _yf_rate_limiter.wait()
 
         # 创建 ticker 对象
         ticker = yf.Ticker(symbol.upper())
@@ -303,6 +368,7 @@ def get_technical_indicator(
 
         # 获取股票数据
         logger.info(f"📊 [yfinance] 获取 {symbol} 技术指标 {indicator}，日期范围: {start_date} 至 {curr_date}")
+        _yf_rate_limiter.wait()
         ticker = yf.Ticker(symbol.upper())
         data = ticker.history(start=start_date, end=curr_date)
 

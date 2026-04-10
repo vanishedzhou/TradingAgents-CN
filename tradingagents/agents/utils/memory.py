@@ -54,27 +54,27 @@ class ChromaDBManager:
                 self._initialized = True
             except Exception as e:
                 logger.error(f"❌ [ChromaDB] 初始化失败: {e}")
-                # 使用最简单的配置作为备用
+                # Fallback 1: EphemeralClient (best for in-memory usage)
                 try:
-                    settings = Settings(
-                        allow_reset=True,
-                        anonymized_telemetry=False,
-                        is_persistent=False
-                    )
-                    self._client = chromadb.Client(settings)
-                    logger.info(f"📚 [ChromaDB] 使用备用配置初始化完成")
+                    if hasattr(chromadb, 'EphemeralClient'):
+                        self._client = chromadb.EphemeralClient()
+                        logger.info(f"📚 [ChromaDB] 使用EphemeralClient备用初始化完成")
+                    else:
+                        self._client = chromadb.Client(Settings(
+                            anonymized_telemetry=False,
+                            is_persistent=False
+                        ))
+                        logger.info(f"📚 [ChromaDB] 使用备用配置初始化完成")
                     self._initialized = True
                 except Exception as backup_error:
                     logger.error(f"❌ [ChromaDB] 备用配置失败: {backup_error}")
-                    # 最终备用方案
+                    # Fallback 2: bare Client()
                     try:
                         self._client = chromadb.Client()
                         logger.warning(f"⚠️ [ChromaDB] 使用最简配置初始化")
                         self._initialized = True
                     except Exception as final_error:
                         logger.error(f"❌ [ChromaDB] 所有初始化方案均失败: {final_error}")
-                        # 即使初始化失败，也标记为 initialized 避免无限重试
-                        # _client 保持 None，后续 get_or_create_collection 会处理
                         self._client = None
                         self._initialized = True
 
@@ -308,6 +308,30 @@ class FinancialSituationMemory:
                 self.client = "DISABLED"
                 logger.warning(f"⚠️ OpenRouter未找到DASHSCOPE_API_KEY，记忆功能已禁用")
                 logger.info(f"💡 系统将继续运行，但不会保存或检索历史记忆")
+        elif self.llm_provider == "codebuddy":
+            # CodeBuddy不支持embedding接口，使用阿里百炼DashScope嵌入服务
+            dashscope_key = os.getenv('DASHSCOPE_API_KEY')
+            if dashscope_key:
+                try:
+                    import dashscope
+                    from dashscope import TextEmbedding
+
+                    dashscope.api_key = dashscope_key
+                    self.embedding = "text-embedding-v4"
+                    self.client = None  # DashScope不需要OpenAI客户端
+                    logger.info(f"💡 CodeBuddy使用阿里百炼嵌入服务(text-embedding-v4)")
+                except ImportError as e:
+                    logger.error(f"❌ DashScope包未安装: {e}")
+                    self.client = "DISABLED"
+                    logger.warning(f"⚠️ CodeBuddy记忆功能已禁用")
+                except Exception as e:
+                    logger.error(f"❌ DashScope初始化失败: {e}")
+                    self.client = "DISABLED"
+                    logger.warning(f"⚠️ CodeBuddy记忆功能已禁用")
+            else:
+                self.client = "DISABLED"
+                logger.warning(f"⚠️ CodeBuddy未找到DASHSCOPE_API_KEY，记忆功能已禁用")
+                logger.info(f"💡 系统将继续运行，但不会保存或检索历史记忆")
         elif config["backend_url"] == "http://localhost:11434/v1":
             self.embedding = "nomic-embed-text"
             self.client = OpenAI(base_url=config["backend_url"])
@@ -424,7 +448,8 @@ class FinancialSituationMemory:
             self.llm_provider == "qianfan" or
             (self.llm_provider == "google" and self.client is None) or
             (self.llm_provider == "deepseek" and self.client is None) or
-            (self.llm_provider == "openrouter" and self.client is None)):
+            (self.llm_provider == "openrouter" and self.client is None) or
+            (self.llm_provider == "codebuddy" and self.client is None)):
             # 使用阿里百炼的嵌入模型
             try:
                 # 导入DashScope模块

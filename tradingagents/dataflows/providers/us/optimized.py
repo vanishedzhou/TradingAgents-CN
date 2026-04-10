@@ -199,6 +199,9 @@ class OptimizedUSDataProvider:
                         logger.info(f"🔄 [数据来源: API调用-Yahoo Finance备用] 使用Yahoo Finance备用方案获取港股数据: {symbol}")
 
                         self._wait_for_rate_limit()
+                        # Also use global yfinance rate limiter
+                        from tradingagents.dataflows.providers.us.yfinance import get_yf_rate_limiter
+                        get_yf_rate_limiter().wait()
                         ticker = yf.Ticker(symbol)  # 港股代码保持原格式
                         data = ticker.history(start=start_date, end=end_date)
 
@@ -212,6 +215,9 @@ class OptimizedUSDataProvider:
                     # 美股使用Yahoo Finance
                     logger.info(f"🇺🇸 [数据来源: API调用-Yahoo Finance] 从Yahoo Finance API获取美股数据: {symbol}")
                     self._wait_for_rate_limit()
+                    # Also use global yfinance rate limiter
+                    from tradingagents.dataflows.providers.us.yfinance import get_yf_rate_limiter
+                    get_yf_rate_limiter().wait()
 
                     # 获取数据
                     ticker = yf.Ticker(symbol.upper())
@@ -405,6 +411,10 @@ class OptimizedUSDataProvider:
     def _get_data_from_yfinance(self, symbol: str, start_date: str, end_date: str) -> str:
         """从 Yahoo Finance API 获取股票数据"""
         try:
+            # Rate limit before API call
+            from tradingagents.dataflows.providers.us.yfinance import get_yf_rate_limiter
+            get_yf_rate_limiter().wait()
+
             # 获取数据
             ticker = yf.Ticker(symbol.upper())
             data = ticker.history(start=start_date, end=end_date)

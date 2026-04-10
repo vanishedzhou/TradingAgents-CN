@@ -1646,6 +1646,61 @@ class DataSourceManager:
         logger.error(f"❌ 所有数据源都无法获取{symbol}的股票信息")
         return {'symbol': symbol, 'name': f'股票{symbol}', 'source': 'unknown'}
 
+    def _get_tushare_stock_info(self, symbol: str) -> Dict:
+        """使用Tushare获取股票基本信息
+
+        Args:
+            symbol: 股票代码，如 000001、600036
+
+        Returns:
+            Dict: 包含股票基本信息的字典
+        """
+        try:
+            adapter = self._get_tushare_adapter()
+            if adapter is None:
+                logger.warning(f"⚠️ [Tushare股票信息] Tushare适配器不可用")
+                return {'symbol': symbol, 'name': f'股票{symbol}', 'source': 'tushare', 'error': 'adapter_unavailable'}
+
+            # Tushare provider uses async API, run it synchronously
+            import asyncio
+
+            async def _fetch():
+                return await adapter.get_stock_basic_info(symbol)
+
+            # Try to get the running event loop; if none, create one
+            try:
+                loop = asyncio.get_running_loop()
+                # Already in an async context – schedule in a thread
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as pool:
+                    result = pool.submit(asyncio.run, _fetch()).result(timeout=15)
+            except RuntimeError:
+                # No running loop – safe to use asyncio.run()
+                result = asyncio.run(_fetch())
+
+            if result and isinstance(result, dict):
+                # Standardized result from TushareProvider already has 'name', 'industry', etc.
+                info = {
+                    'symbol': result.get('symbol', symbol),
+                    'name': result.get('name', f'股票{symbol}'),
+                    'area': result.get('area', '未知'),
+                    'industry': result.get('industry', '未知'),
+                    'market': result.get('market', '未知'),
+                    'list_date': result.get('list_date', '未知'),
+                    'exchange': result.get('market_info', {}).get('exchange_name', '未知') if isinstance(result.get('market_info'), dict) else '未知',
+                    'source': 'tushare'
+                }
+                if info['name'] and info['name'] != f'股票{symbol}':
+                    logger.info(f"✅ [Tushare股票信息] {symbol} -> {info['name']}")
+                return info
+            else:
+                logger.warning(f"⚠️ [Tushare股票信息] 返回空数据: {symbol}")
+                return {'symbol': symbol, 'name': f'股票{symbol}', 'source': 'tushare'}
+
+        except Exception as e:
+            logger.error(f"❌ [股票信息] Tushare获取失败: {symbol}, 错误: {e}")
+            return {'symbol': symbol, 'name': f'股票{symbol}', 'source': 'tushare', 'error': str(e)}
+
     def _get_akshare_stock_info(self, symbol: str) -> Dict:
         """使用AKShare获取股票基本信息
 

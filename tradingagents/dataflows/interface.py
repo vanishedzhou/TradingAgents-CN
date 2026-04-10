@@ -868,6 +868,10 @@ def get_YFin_data_online(
     datetime.strptime(start_date, "%Y-%m-%d")
     datetime.strptime(end_date, "%Y-%m-%d")
 
+    # Rate limit before API call
+    from .providers.us.yfinance import get_yf_rate_limiter
+    get_yf_rate_limiter().wait()
+
     # Create ticker object
     ticker = yf.Ticker(symbol.upper())
 
@@ -1285,6 +1289,10 @@ def _get_fundamentals_yfinance(ticker, curr_date, cache):
     try:
         logger.info(f"📊 [yfinance] 获取 {ticker} 的基本面数据...")
         import yfinance as yf
+
+        # Rate limit before API call
+        from .providers.us.yfinance import get_yf_rate_limiter
+        get_yf_rate_limiter().wait()
 
         ticker_obj = yf.Ticker(ticker.upper())
         info = ticker_obj.info
