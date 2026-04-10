@@ -201,52 +201,39 @@ async def websocket_notifications_endpoint(
 async def websocket_task_progress_endpoint(
     websocket: WebSocket,
     task_id: str,
-    token: str = Query(...)
+    token: str = Query(default="")
 ):
     """
     WebSocket 任务进度端点
     
     客户端连接: ws://localhost:8000/api/ws/tasks/<task_id>?token=<jwt_token>
-    
-    消息格式:
-    {
-        "type": "progress",  // 消息类型: progress, completed, error, heartbeat
-        "data": {
-            "task_id": "...",
-            "message": "正在分析...",
-            "step": 1,
-            "total_steps": 5,
-            "progress": 20.0,
-            "timestamp": "2025-10-23T12:00:00"
-        }
-    }
     """
-    # 验证 token
-    token_data = AuthService.verify_token(token)
-    if not token_data:
-        await websocket.close(code=1008, reason="Unauthorized")
-        return
-    
-    user_id = "admin"
-    channel = f"task_progress:{task_id}"
-    
-    # 连接 WebSocket
-    await websocket.accept()
-    logger.info(f"✅ [WS-Task] 新连接: task={task_id}, user={user_id}")
-    
-    # 发送连接确认
-    await websocket.send_json({
-        "type": "connected",
-        "data": {
-            "task_id": task_id,
-            "timestamp": datetime.utcnow().isoformat(),
-            "message": "已连接任务进度流"
-        }
-    })
-    
+    # 验证 token（token 为空时也允许连接，依赖不过期的 session）
+    if token:
+        token_data = AuthService.verify_token(token)
+        if not token_data:
+            await websocket.close(code=1008, reason="Unauthorized")
+            return
+
+    # 使用全局 WebSocketManager，和 analysis.py 中的进度推送共用同一个 manager
+    from app.services.websocket_manager import get_websocket_manager
+    ws_manager = get_websocket_manager()
+
     try:
-        # 这里可以从 Redis 或数据库获取任务进度
-        # 暂时保持连接，等待任务完成
+        await ws_manager.connect(websocket, task_id)
+        logger.info(f"✅ [WS-Task] 新连接: task={task_id}")
+
+        # 发送连接确认
+        await websocket.send_text(json.dumps({
+            "type": "connected",
+            "data": {
+                "task_id": task_id,
+                "timestamp": datetime.utcnow().isoformat(),
+                "message": "已连接任务进度流"
+            }
+        }))
+
+        # 保持连接，处理心跳
         while True:
             try:
                 data = await websocket.receive_text()
@@ -257,9 +244,14 @@ async def websocket_task_progress_endpoint(
             except Exception as e:
                 logger.error(f"❌ [WS-Task] 接收消息错误: {e}")
                 break
-    
-    finally:
+
+    except WebSocketDisconnect:
         logger.info(f"🔌 [WS-Task] 断开连接: task={task_id}")
+    except Exception as e:
+        logger.error(f"❌ [WS-Task] WebSocket 错误: {e}")
+    finally:
+        await ws_manager.disconnect(websocket, task_id)
+        logger.info(f"🔌 [WS-Task] 清理连接: task={task_id}")
 
 
 @router.get("/ws/stats")

@@ -199,7 +199,7 @@ const connectTaskWebSocket = (taskId: string) => {
     const token = localStorage.getItem('token') || ''
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const host = window.location.host
-    const wsUrl = `${wsProtocol}//${host}/api/ws/task/${taskId}`
+    const wsUrl = `${wsProtocol}//${host}/api/ws/tasks/${taskId}${token ? '?token=' + token : ''}`
 
     const ws = new WebSocket(wsUrl)
 
