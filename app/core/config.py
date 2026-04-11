@@ -201,6 +201,9 @@ class Settings(BaseSettings):
     TUSHARE_STATUS_CHECK_ENABLED: bool = Field(default=True)
     TUSHARE_STATUS_CHECK_CRON: str = Field(default="0 * * * *")  # 每小时
 
+    # 任务并发配置
+    MAX_CONCURRENT_TASKS: int = Field(default=3, ge=1, le=20, description="最大并发分析任务数")
+
     # Tushare数据初始化配置
     TUSHARE_INIT_HISTORICAL_DAYS: int = Field(default=365, ge=1, le=3650, description="初始化历史数据天数")
     TUSHARE_INIT_BATCH_SIZE: int = Field(default=100, ge=10, le=1000, description="初始化批处理大小")

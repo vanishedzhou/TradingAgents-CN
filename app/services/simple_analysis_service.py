@@ -599,13 +599,15 @@ class SimpleAnalysisService:
         self._progress_trackers: Dict[str, RedisProgressTracker] = {}
 
         # 🔧 创建共享的线程池，支持并发执行多个分析任务
-        # 默认最多同时执行3个分析任务（可根据服务器资源调整）
+        # 从环境变量 MAX_CONCURRENT_TASKS 读取并发数，默认 3
         import concurrent.futures
-        self._thread_pool = concurrent.futures.ThreadPoolExecutor(max_workers=3)
+        from app.core.config import settings
+        _max_workers = getattr(settings, 'MAX_CONCURRENT_TASKS', None) or int(__import__('os').environ.get('MAX_CONCURRENT_TASKS', 3))
+        self._thread_pool = concurrent.futures.ThreadPoolExecutor(max_workers=_max_workers)
 
         logger.info(f"🔧 [服务初始化] SimpleAnalysisService 实例ID: {id(self)}")
         logger.info(f"🔧 [服务初始化] 内存管理器实例ID: {id(self.memory_manager)}")
-        logger.info(f"🔧 [服务初始化] 线程池最大并发数: 3")
+        logger.info(f"🔧 [服务初始化] 线程池最大并发数: {_max_workers}")
 
         # 设置 WebSocket 管理器
         # 简单的股票名称缓存，减少重复查询
@@ -835,9 +837,10 @@ class SimpleAnalysisService:
             from datetime import datetime
 
             # 获取市场类型
-            market_type = request.parameters.market_type if request.parameters else "A股"
-
-            # 获取分析日期并转换为字符串格式
+            market_type = request.parameters.market_type if request.parameters else "auto"
+            # 如果前端传来空字符串，也 fallback 到 auto
+            if not market_type:
+                market_type = "auto"
             analysis_date = request.parameters.analysis_date if request.parameters else None
             if analysis_date:
                 # 如果是 datetime 对象，转换为字符串
@@ -1229,7 +1232,10 @@ class SimpleAnalysisService:
                 logger.info(f"✅ [混合模式] 快速模型({quick_provider}) 和 深度模型({deep_provider}) 来自不同厂家")
 
             # 获取市场类型
-            market_type = request.parameters.market_type if request.parameters else "A股"
+            market_type = request.parameters.market_type if request.parameters else "auto"
+            # 如果前端传来空字符串，也 fallback 到 auto
+            if not market_type:
+                market_type = "auto"
             logger.info(f"📊 [市场类型] 使用市场类型: {market_type}")
 
             # 创建分析配置（支持混合模式）
