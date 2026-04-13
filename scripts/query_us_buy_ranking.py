@@ -116,51 +116,23 @@ def main():
         print("❌ 未找到美股分析报告")
         return
 
-    print(f"\n📋 共找到 {len(us_reports)} 条美股分析报告")
+    print(f"\n📋 共找到 {len(us_reports)} 条美股分析报告，全部展示")
 
-    # Step 2: Identify the latest batch
-    # Group by batch - use task_id to find batch_id from analysis_tasks
-    # Or simply take the latest 10 reports as the "latest batch"
-    # First try to find batch_id from analysis_tasks
-    latest_batch_reports = []
-    batch_id = None
+    # Step 2: 去重（同一股票保留最新一条）
+    seen_symbols = {}
+    for report in us_reports:
+        symbol = report.get('stock_symbol', '')
+        if symbol and symbol not in seen_symbols:
+            seen_symbols[symbol] = report
 
-    # Check if reports have task_id and find batch
-    for report in us_reports[:1]:
-        task_id = report.get('task_id')
-        if task_id:
-            task_doc = db.analysis_tasks.find_one({"task_id": task_id})
-            if task_doc and task_doc.get('batch_id'):
-                batch_id = task_doc['batch_id']
-                break
-
-    if batch_id:
-        print(f"🔍 找到最近批次ID: {batch_id}")
-        # Get all tasks in this batch
-        batch_tasks = list(db.analysis_tasks.find({"batch_id": batch_id}))
-        batch_task_ids = [t['task_id'] for t in batch_tasks]
-        print(f"📦 该批次共有 {len(batch_task_ids)} 个任务")
-
-        # Get reports for these tasks
-        for task_id in batch_task_ids:
-            report = db.analysis_reports.find_one({"task_id": task_id})
-            if report:
-                latest_batch_reports.append(report)
-            else:
-                # Fallback: check analysis_tasks result
-                task = db.analysis_tasks.find_one({"task_id": task_id})
-                if task and task.get('result'):
-                    latest_batch_reports.append(task['result'])
-    else:
-        # Fallback: take the latest 10 US stock reports
-        print("⚠️ 未找到批次信息，取最近10条美股分析报告")
-        latest_batch_reports = us_reports[:10]
+    latest_batch_reports = list(seen_symbols.values())
+    print(f"📦 去重后共 {len(latest_batch_reports)} 只美股（每只保留最新一条）")
 
     if not latest_batch_reports:
-        print("❌ 未找到批次分析报告")
+        print("❌ 未找到分析报告")
         return
 
-    print(f"\n📊 该批次共 {len(latest_batch_reports)} 个美股分析结果:")
+    print(f"\n📊 全部 {len(latest_batch_reports)} 个美股分析结果:")
     print("-" * 90)
 
     # Step 3: Display all results and filter for "buy"
