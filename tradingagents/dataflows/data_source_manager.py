@@ -1597,6 +1597,13 @@ class DataSourceManager:
         """尝试使用备用数据源获取股票基本信息"""
         logger.error(f"🔄 {self.current_source.value}失败，尝试备用数据源获取股票信息...")
 
+        # 🔥 市场路由：非A股代码（美股/港股）直接走 yfinance，不打东财/Tushare/BaoStock
+        from tradingagents.utils.stock_utils import StockUtils, StockMarket
+        market = StockUtils.identify_stock_market(symbol)
+        if market in (StockMarket.US, StockMarket.HONG_KONG):
+            logger.info(f"🌐 [股票信息路由] 检测到非A股代码 {symbol} ({market.value})，跳过中国数据源，直接使用 yfinance")
+            return self._get_yfinance_stock_info(symbol)
+
         # 获取所有可用数据源
         available_sources = self.available_sources.copy()
 
@@ -1704,11 +1711,18 @@ class DataSourceManager:
     def _get_akshare_stock_info(self, symbol: str) -> Dict:
         """使用AKShare获取股票基本信息
 
-        🔥 重要：AKShare 需要区分股票和指数
+        🔥 重要：AKShare 仅支持中国A股，对于美股/港股代码会直接返回空，不发起网络请求，避免触发东财限频。
         - 对于 000001，如果不加后缀，会被识别为"深圳成指"（指数）
         - 对于股票，需要使用完整代码（如 sz000001 或 sh600000）
         """
         try:
+            # 🔥 市场检测：AKShare 不支持美股/港股，非A股直接跳过，防止打东财接口触发限频
+            from tradingagents.utils.stock_utils import StockUtils, StockMarket
+            market = StockUtils.identify_stock_market(symbol)
+            if market != StockMarket.CHINA_A:
+                logger.info(f"⏭️ [AKShare股票信息] 跳过非A股代码: {symbol} (市场: {market.value})，AKShare不支持")
+                return {'symbol': symbol, 'name': f'股票{symbol}', 'source': 'akshare', 'error': 'not_china_a_stock'}
+
             import akshare as ak
 
             # 🔥 转换为 AKShare 格式的股票代码
@@ -1808,6 +1822,43 @@ class DataSourceManager:
         except Exception as e:
             logger.error(f"❌ [股票信息] BaoStock获取失败: {e}")
             return {'symbol': symbol, 'name': f'股票{symbol}', 'source': 'baostock', 'error': str(e)}
+
+    def _get_yfinance_stock_info(self, symbol: str) -> Dict:
+        """使用 yfinance 获取股票基本信息（用于美股/港股，不走东财接口）"""
+        try:
+            import yfinance as yf
+            from tradingagents.utils.stock_utils import StockUtils, StockMarket
+
+            # 港股代码转换为 yfinance 格式：0700 -> 0700.HK
+            market = StockUtils.identify_stock_market(symbol)
+            if market == StockMarket.HONG_KONG and not symbol.upper().endswith('.HK'):
+                yf_symbol = f"{symbol.zfill(4)}.HK"
+            else:
+                yf_symbol = symbol
+
+            logger.info(f"📊 [yfinance股票信息] 查询: {symbol} -> {yf_symbol}")
+            ticker = yf.Ticker(yf_symbol)
+            info = ticker.info
+
+            if not info or info.get('trailingPegRatio') is None and not info.get('shortName'):
+                logger.warning(f"⚠️ [yfinance股票信息] 返回数据不完整: {symbol}")
+
+            name = info.get('shortName') or info.get('longName') or symbol
+            result = {
+                'symbol': symbol,
+                'name': name,
+                'area': info.get('country', '未知'),
+                'industry': info.get('industry') or info.get('sector') or '未知',
+                'market': info.get('exchange', '未知'),
+                'list_date': '未知',
+                'source': 'yfinance',
+            }
+            logger.info(f"✅ [yfinance股票信息] {symbol} -> {name}")
+            return result
+
+        except Exception as e:
+            logger.error(f"❌ [yfinance股票信息] 获取失败: {symbol}, 错误: {e}")
+            return {'symbol': symbol, 'name': symbol, 'source': 'yfinance', 'error': str(e)}
 
     def _parse_stock_info_string(self, info_str: str, symbol: str) -> Dict:
         """解析股票信息字符串为字典"""
