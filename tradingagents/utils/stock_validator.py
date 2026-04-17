@@ -889,6 +889,28 @@ class StockDataPreparer:
                     # 继续尝试下一个数据源
                     continue
 
+            # 所有 sync 服务失败，尝试 BaoStock 直接兜底
+            logger.warning(f"⚠️ [数据同步] 所有sync服务失败，尝试BaoStock直接拉取: {stock_code}")
+            try:
+                from tradingagents.dataflows.data_source_manager import DataSourceManager
+                mgr = DataSourceManager()
+                result_str = mgr._get_baostock_data(stock_code, start_date, end_date)
+                if result_str and "❌" not in result_str and len(result_str) > 50:
+                    logger.info(f"✅ [数据同步] BaoStock直接拉取成功: {stock_code}")
+                    return {
+                        "success": True,
+                        "message": f"BaoStock直接拉取成功",
+                        "synced_records": 1,
+                        "data_source": "baostock",
+                        "historical_records": 1,
+                        "financial_synced": False,
+                        "realtime_synced": False
+                    }
+                else:
+                    logger.warning(f"⚠️ [数据同步] BaoStock兜底失败: {result_str[:80]}")
+            except Exception as bs_e:
+                logger.error(f"❌ [数据同步] BaoStock兜底异常: {bs_e}")
+
             # 所有数据源都失败
             message = f"所有数据源同步失败，最后错误: {last_error}"
             logger.error(f"❌ [数据同步] {message}")

@@ -23,20 +23,27 @@ import asyncio as _asyncio
 
 def _run_async(coro):
     """
-    在任意上下文（主线程/线程池）中安全运行协程。
-    - 若当前线程无运行中的 loop（线程池场景）：asyncio.run() 创建新 loop
-    - 若已有运行中的 loop（主 async 场景，nest_asyncio 已 patch）：loop.run_until_complete()
+    在任意上下文（主线程/线程池/uvloop）中安全运行协程。
+    始终在独立线程中创建新 loop，避免任何 loop 嵌套问题。
     """
-    try:
-        loop = _asyncio.get_event_loop()
-        if loop.is_running():
-            # nest_asyncio 已 patch，可嵌套
-            return loop.run_until_complete(coro)
-        else:
-            return loop.run_until_complete(coro)
-    except RuntimeError:
-        # 线程池中无 event loop，用 asyncio.run 创建独立 loop
-        return _asyncio.run(coro)
+    import threading
+    result_holder = [None]
+    exc_holder = [None]
+
+    def run_in_new_thread():
+        try:
+            result_holder[0] = _asyncio.run(coro)
+        except Exception as e:
+            exc_holder[0] = e
+
+    t = threading.Thread(target=run_in_new_thread, daemon=True)
+    t.start()
+    t.join(timeout=120)  # 最多等 120 秒
+    if t.is_alive():
+        raise TimeoutError(f"_run_async 超时（120s）")
+    if exc_holder[0] is not None:
+        raise exc_holder[0]
+    return result_holder[0]
 
 # 导入日志模块
 from tradingagents.utils.logging_manager import get_logger
