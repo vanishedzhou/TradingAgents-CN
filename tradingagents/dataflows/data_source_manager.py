@@ -12,6 +12,13 @@ import warnings
 import pandas as pd
 import numpy as np
 
+# 允许在已运行的事件循环中嵌套调用（解决 async 环境下 run_until_complete 冲突）
+try:
+    import nest_asyncio
+    nest_asyncio.apply()
+except Exception:
+    pass
+
 # 导入日志模块
 from tradingagents.utils.logging_manager import get_logger
 logger = get_logger('agents')
@@ -1118,7 +1125,7 @@ class DataSourceManager:
                               })
 
                 # 数据质量异常时也尝试降级到其他数据源
-                fallback_result = self._try_fallback_sources(symbol, start_date, end_date)
+                fallback_result, _ = self._try_fallback_sources(symbol, start_date, end_date)
                 if fallback_result and "❌" not in fallback_result and "错误" not in fallback_result:
                     logger.info(f"✅ [数据来源: 备用数据源] 降级成功获取数据: {symbol}")
                     return fallback_result
@@ -1138,7 +1145,8 @@ class DataSourceManager:
                             'error': str(e),
                             'event_type': 'data_fetch_exception'
                         }, exc_info=True)
-            return self._try_fallback_sources(symbol, start_date, end_date)
+            fallback_result, _ = self._try_fallback_sources(symbol, start_date, end_date)
+            return fallback_result
 
     def _get_mongodb_data(self, symbol: str, start_date: str, end_date: str, period: str = "daily") -> tuple[str, str | None]:
         """
@@ -1176,9 +1184,10 @@ class DataSourceManager:
                 return self._try_fallback_sources(symbol, start_date, end_date, period)
 
         except Exception as e:
-            logger.error(f"❌ [数据来源: MongoDB异常] 获取{period}数据失败: {symbol}, 错误: {e}")
-            # MongoDB异常，降级到其他数据源
-            return self._try_fallback_sources(symbol, start_date, end_date, period)
+            logger.error(f"\u274c [\u6570\u636e\u6765\u6e90: MongoDB\u5f02\u5e38] \u83b7\u53d6{period}\u6570\u636e\u5931\u8d25: {symbol}, \u9519\u8bef: {e}")
+            # MongoDB\u5f02\u5e38\uff0c\u964d\u7ea7\u5230\u5176\u4ed6\u6570\u636e\u6e90
+            fallback_result, fallback_source = self._try_fallback_sources(symbol, start_date, end_date, period)
+            return fallback_result, fallback_source
 
     def _get_tushare_data(self, symbol: str, start_date: str, end_date: str, period: str = "daily") -> str:
         """使用Tushare获取多周期数据 - 使用provider + 统一缓存"""
