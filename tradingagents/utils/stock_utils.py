@@ -47,8 +47,8 @@ class StockUtils:
         if re.match(r'^\d{4,5}\.HK$', ticker) or re.match(r'^\d{4,5}$', ticker):
             return StockMarket.HONG_KONG
 
-        # 美股：1-5位字母
-        if re.match(r'^[A-Z]{1,5}$', ticker):
+        # 美股：1-5位字母（支持连字符变体如 BRK-B、BF-B）
+        if re.match(r'^[A-Z]{1,5}(-[A-Z])?$', ticker):
             return StockMarket.US
 
         return StockMarket.UNKNOWN

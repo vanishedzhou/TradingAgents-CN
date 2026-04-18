@@ -835,6 +835,12 @@ class SimpleAnalysisService:
             logger.info(f"🔍 开始验证股票代码: {stock_code}")
             from tradingagents.utils.stock_validator import prepare_stock_data_async
             from datetime import datetime
+            from app.models.analysis import AnalysisParameters
+
+            # 确保 parameters 不为 None（兼容顶层传参方式）
+            if request.parameters is None:
+                request.parameters = AnalysisParameters()
+                logger.warning(f"⚠️ request.parameters 为 None，已自动初始化默认参数")
 
             # 获取市场类型
             market_type = request.parameters.market_type if request.parameters else "auto"

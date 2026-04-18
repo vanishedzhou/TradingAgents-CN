@@ -137,13 +137,13 @@ class StockDataPreparer:
                     suggestion="请输入4-5位数字.HK格式（如：0700.HK）或4-5位数字（如：0700）"
                 )
         elif market_type == "美股":
-            if not re.match(r'^[A-Z]{1,5}$', stock_code.upper()):
+            if not re.match(r'^[A-Z]{1,5}(-[A-Z])?$', stock_code.upper()):
                 return StockDataPreparationResult(
                     is_valid=False,
                     stock_code=stock_code,
                     market_type="美股",
                     error_message="美股代码格式错误，应为1-5位字母",
-                    suggestion="请输入1-5位字母的美股代码，如：AAPL、TSLA"
+                    suggestion="请输入1-5位字母的美股代码，如：AAPL、TSLA、BRK-B"
                 )
         
         return StockDataPreparationResult(
@@ -164,8 +164,8 @@ class StockDataPreparer:
         if re.match(r'^\d{4,5}\.HK$', stock_code) or re.match(r'^\d{4,5}$', stock_code):
             return "港股"
         
-        # 美股：1-5位字母
-        if re.match(r'^[A-Z]{1,5}$', stock_code):
+        # 美股：1-5位字母（支持连字符变体如 BRK-B、BF-B）
+        if re.match(r'^[A-Z]{1,5}(-[A-Z])?$', stock_code):
             return "美股"
         
         return "未知"
@@ -1220,13 +1220,16 @@ class StockDataPreparer:
                         suggestion="该股票可能为新上市股票或数据源暂时不可用，请稍后重试"
                     )
             else:
-                logger.warning(f"⚠️ [美股数据] 无法获取历史数据: {formatted_code}")
+                logger.warning(f"⚠️ [美股数据] 无法获取历史数据: {formatted_code}，数据源当前可能被限流，允许任务继续执行")
+                # 数据源限流是临时性错误，不应该拒绝任务；让分析阶段自己重试
                 return StockDataPreparationResult(
-                    is_valid=False,
+                    is_valid=True,
                     stock_code=formatted_code,
                     market_type="美股",
-                    error_message=f"美股代码 {formatted_code} 不存在或无法获取数据",
-                    suggestion="请检查美股代码是否正确，如：AAPL、TSLA、MSFT"
+                    stock_name=formatted_code,
+                    has_historical_data=False,
+                    has_basic_info=False,
+                    cache_status="数据源暂时不可用，将在分析阶段重试"
                 )
 
         except Exception as e:

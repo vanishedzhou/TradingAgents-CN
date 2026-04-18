@@ -799,10 +799,10 @@ def validate_analysis_params(stock_symbol, analysis_date, analysts, research_dep
             if not (hk_format or digit_format):
                 errors.append("港股代码格式错误，应为4位数字.HK（如：0700.HK）或4位数字（如：0700）")
         elif market_type == "美股":
-            # 美股：1-5位字母
+            # 美股：1-5位字母（支持连字符变体如 BRK-B、BF-B）
             import re
-            if not re.match(r'^[A-Z]{1,5}$', symbol.upper()):
-                errors.append("美股代码格式错误，应为1-5位字母（如：AAPL）")
+            if not re.match(r'^[A-Z]{1,5}(-[A-Z])?$', symbol.upper()):
+                errors.append("美股代码格式错误，应为1-5位字母（如：AAPL、BRK-B）")
     
     # 验证分析师列表
     if not analysts or len(analysts) == 0:
