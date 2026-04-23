@@ -114,6 +114,7 @@
                 <el-option label="通义千问（推荐，国产稳定）" value="dashscope" />
                 <el-option label="OpenAI" value="openai" />
                 <el-option label="Google Gemini" value="google" />
+                <el-option label="CodeBuddy（腾讯代理·多模型聚合）" value="codebuddy" />
               </el-select>
             </el-form-item>
 
@@ -413,6 +414,34 @@ const availableModels = computed(() => {
     google: [
       { label: 'gemini-pro', value: 'gemini-pro' },
       { label: 'gemini-2.5-pro', value: 'gemini-2.5-pro' }
+    ],
+    codebuddy: [
+      // Claude
+      { label: 'Claude Opus 4.6 - 旗舰', value: 'claude-opus-4.6' },
+      { label: 'Claude Opus 4.6 (1M 上下文)', value: 'claude-opus-4.6-1m' },
+      { label: 'Claude Sonnet 4.6 - 平衡', value: 'claude-sonnet-4.6' },
+      { label: 'Claude Sonnet 4.6 (1M 上下文)', value: 'claude-sonnet-4.6-1m' },
+      { label: 'Claude Opus 4.5 - 前代旗舰', value: 'claude-opus-4.5' },
+      { label: 'Claude Haiku 4.5 - 快速', value: 'claude-haiku-4.5' },
+      // GPT
+      { label: 'GPT-5.4 - OpenAI 旗舰', value: 'gpt-5.4' },
+      // Gemini (代理)
+      { label: 'Gemini 2.5 Pro (代理)', value: 'gemini-2.5-pro' },
+      { label: 'Gemini 2.5 Flash (代理)', value: 'gemini-2.5-flash' },
+      // 国产
+      { label: 'Hunyuan 2.0 Instruct - 腾讯混元', value: 'hunyuan-2.0-instruct' },
+      { label: 'Hunyuan 2.0 Thinking - 腾讯混元推理', value: 'hunyuan-2.0-thinking' },
+      { label: 'GLM 5.0 Turbo - 智谱快速', value: 'glm-5.0-turbo' },
+      { label: 'GLM 5.0 - 智谱旗舰', value: 'glm-5.0' },
+      { label: 'GLM 4.7 - 智谱经典', value: 'glm-4.7' },
+      { label: 'DeepSeek V3', value: 'deepseek-v3' },
+      { label: 'DeepSeek V3 (0324)', value: 'deepseek-v3-0324' },
+      { label: 'DeepSeek R1 - 推理', value: 'deepseek-r1' },
+      { label: 'Kimi K2.5 - 月之暗面', value: 'kimi-k2.5' },
+      { label: 'MiniMax M2.5', value: 'minimax-m2.5' },
+      // 别名
+      { label: 'Default - 默认路由 (→ glm-4.7)', value: 'default' },
+      { label: 'Auto - 自动路由', value: 'auto' }
     ]
   }
   return models[provider] || []
@@ -453,7 +482,8 @@ const getProviderName = (provider: string) => {
     deepseek: 'DeepSeek',
     dashscope: '通义千问',
     openai: 'OpenAI',
-    google: 'Google Gemini'
+    google: 'Google Gemini',
+    codebuddy: 'CodeBuddy (腾讯代理)'
   }
   return names[provider] || provider
 }
@@ -463,7 +493,8 @@ const getProviderHelp = (provider: string) => {
     deepseek: '注册 DeepSeek 账号，在控制台创建 API Key',
     dashscope: '注册阿里云账号，开通百炼服务，获取 API 密钥',
     openai: '注册 OpenAI 账号，在 API Keys 页面创建密钥',
-    google: '注册 Google Cloud 账号，启用 Gemini API'
+    google: '注册 Google Cloud 账号，启用 Gemini API',
+    codebuddy: '登录 CodeBuddy（腾讯云开发者平台），在账号设置中生成 API Key。CodeBuddy 代理 Claude / GPT / Gemini / 混元 / GLM / DeepSeek / Kimi / MiniMax 等多家模型。'
   }
   return helps[provider] || ''
 }
@@ -473,7 +504,8 @@ const getProviderUrl = (provider: string) => {
     deepseek: 'https://platform.deepseek.com/',
     dashscope: 'https://dashscope.aliyun.com/',
     openai: 'https://platform.openai.com/',
-    google: 'https://ai.google.dev/'
+    google: 'https://ai.google.dev/',
+    codebuddy: 'https://copilot.tencent.com/'
   }
   return urls[provider] || ''
 }

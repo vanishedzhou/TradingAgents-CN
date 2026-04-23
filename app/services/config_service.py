@@ -2661,6 +2661,191 @@ class ConfigService:
                         "currency": "CNY"
                     }
                 ]
+            },
+            {
+                "provider": "codebuddy",
+                "provider_name": "CodeBuddy (腾讯代理)",
+                "models": [
+                    # 腾讯混元
+                    {
+                        "name": "hunyuan-2.0-instruct",
+                        "display_name": "Hunyuan 2.0 Instruct - 腾讯混元指令",
+                        "input_price_per_1k": 0.0,
+                        "output_price_per_1k": 0.0,
+                        "context_length": 32768,
+                        "currency": "CNY",
+                        "description": "CodeBuddy 代理的腾讯混元 2.0 指令模型"
+                    },
+                    {
+                        "name": "hunyuan-2.0-thinking",
+                        "display_name": "Hunyuan 2.0 Thinking - 腾讯混元推理",
+                        "input_price_per_1k": 0.0,
+                        "output_price_per_1k": 0.0,
+                        "context_length": 32768,
+                        "currency": "CNY",
+                        "description": "CodeBuddy 代理的腾讯混元 2.0 推理模型"
+                    },
+                    # 智谱 GLM
+                    {
+                        "name": "glm-5.0-turbo",
+                        "display_name": "GLM 5.0 Turbo - 智谱快速",
+                        "input_price_per_1k": 0.0,
+                        "output_price_per_1k": 0.0,
+                        "context_length": 128000,
+                        "currency": "CNY"
+                    },
+                    {
+                        "name": "glm-5.0",
+                        "display_name": "GLM 5.0 - 智谱旗舰",
+                        "input_price_per_1k": 0.0,
+                        "output_price_per_1k": 0.0,
+                        "context_length": 128000,
+                        "currency": "CNY"
+                    },
+                    {
+                        "name": "glm-4.7",
+                        "display_name": "GLM 4.7 - 智谱经典",
+                        "input_price_per_1k": 0.0,
+                        "output_price_per_1k": 0.0,
+                        "context_length": 128000,
+                        "currency": "CNY"
+                    },
+                    # DeepSeek
+                    {
+                        "name": "deepseek-v3",
+                        "display_name": "DeepSeek V3 - 通用对话",
+                        "input_price_per_1k": 0.0,
+                        "output_price_per_1k": 0.0,
+                        "context_length": 65536,
+                        "currency": "CNY"
+                    },
+                    {
+                        "name": "deepseek-v3-0324",
+                        "display_name": "DeepSeek V3 (0324) - 更新版",
+                        "input_price_per_1k": 0.0,
+                        "output_price_per_1k": 0.0,
+                        "context_length": 65536,
+                        "currency": "CNY"
+                    },
+                    {
+                        "name": "deepseek-r1",
+                        "display_name": "DeepSeek R1 - 推理模型",
+                        "input_price_per_1k": 0.0,
+                        "output_price_per_1k": 0.0,
+                        "context_length": 65536,
+                        "currency": "CNY"
+                    },
+                    # Claude
+                    {
+                        "name": "claude-opus-4.6",
+                        "display_name": "Claude Opus 4.6 - 旗舰",
+                        "input_price_per_1k": 0.0,
+                        "output_price_per_1k": 0.0,
+                        "context_length": 200000,
+                        "currency": "USD"
+                    },
+                    {
+                        "name": "claude-opus-4.6-1m",
+                        "display_name": "Claude Opus 4.6 (1M 上下文)",
+                        "input_price_per_1k": 0.0,
+                        "output_price_per_1k": 0.0,
+                        "context_length": 1000000,
+                        "currency": "USD"
+                    },
+                    {
+                        "name": "claude-sonnet-4.6",
+                        "display_name": "Claude Sonnet 4.6 - 平衡",
+                        "input_price_per_1k": 0.0,
+                        "output_price_per_1k": 0.0,
+                        "context_length": 200000,
+                        "currency": "USD"
+                    },
+                    {
+                        "name": "claude-sonnet-4.6-1m",
+                        "display_name": "Claude Sonnet 4.6 (1M 上下文)",
+                        "input_price_per_1k": 0.0,
+                        "output_price_per_1k": 0.0,
+                        "context_length": 1000000,
+                        "currency": "USD"
+                    },
+                    {
+                        "name": "claude-opus-4.5",
+                        "display_name": "Claude Opus 4.5 - 前代旗舰",
+                        "input_price_per_1k": 0.0,
+                        "output_price_per_1k": 0.0,
+                        "context_length": 200000,
+                        "currency": "USD"
+                    },
+                    {
+                        "name": "claude-haiku-4.5",
+                        "display_name": "Claude Haiku 4.5 - 快速",
+                        "input_price_per_1k": 0.0,
+                        "output_price_per_1k": 0.0,
+                        "context_length": 200000,
+                        "currency": "USD"
+                    },
+                    # GPT
+                    {
+                        "name": "gpt-5.4",
+                        "display_name": "GPT-5.4 - OpenAI 旗舰",
+                        "input_price_per_1k": 0.0,
+                        "output_price_per_1k": 0.0,
+                        "context_length": 200000,
+                        "currency": "USD"
+                    },
+                    # Kimi
+                    {
+                        "name": "kimi-k2.5",
+                        "display_name": "Kimi K2.5 - 月之暗面",
+                        "input_price_per_1k": 0.0,
+                        "output_price_per_1k": 0.0,
+                        "context_length": 128000,
+                        "currency": "CNY"
+                    },
+                    # MiniMax
+                    {
+                        "name": "minimax-m2.5",
+                        "display_name": "MiniMax M2.5",
+                        "input_price_per_1k": 0.0,
+                        "output_price_per_1k": 0.0,
+                        "context_length": 128000,
+                        "currency": "CNY"
+                    },
+                    # Gemini (代理)
+                    {
+                        "name": "gemini-2.5-pro",
+                        "display_name": "Gemini 2.5 Pro (代理)",
+                        "input_price_per_1k": 0.0,
+                        "output_price_per_1k": 0.0,
+                        "context_length": 1000000,
+                        "currency": "USD"
+                    },
+                    {
+                        "name": "gemini-2.5-flash",
+                        "display_name": "Gemini 2.5 Flash (代理)",
+                        "input_price_per_1k": 0.0,
+                        "output_price_per_1k": 0.0,
+                        "context_length": 1000000,
+                        "currency": "USD"
+                    },
+                    # 通用别名
+                    {
+                        "name": "default",
+                        "display_name": "Default - 默认路由 (→ glm-4.7)",
+                        "input_price_per_1k": 0.0,
+                        "output_price_per_1k": 0.0,
+                        "context_length": 128000,
+                        "currency": "CNY"
+                    },
+                    {
+                        "name": "auto",
+                        "display_name": "Auto - 自动路由",
+                        "input_price_per_1k": 0.0,
+                        "output_price_per_1k": 0.0,
+                        "context_length": 128000,
+                        "currency": "CNY"
+                    }
+                ]
             }
         ]
 

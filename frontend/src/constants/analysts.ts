@@ -107,7 +107,37 @@ export const MODEL_TO_PROVIDER_MAP: Record<string, string> = {
   // 智谱AI
   'glm-4': 'zhipu',
   'glm-3-turbo': 'zhipu',
-  'chatglm3-6b': 'zhipu'
+  'chatglm3-6b': 'zhipu',
+
+  // CodeBuddy (腾讯代理 · 聚合多家模型)
+  // Claude 系列（仅在 CodeBuddy 聚合下暴露）
+  'claude-opus-4.6': 'codebuddy',
+  'claude-opus-4.6-1m': 'codebuddy',
+  'claude-sonnet-4.6': 'codebuddy',
+  'claude-sonnet-4.6-1m': 'codebuddy',
+  'claude-opus-4.5': 'codebuddy',
+  'claude-haiku-4.5': 'codebuddy',
+  // GPT
+  'gpt-5.4': 'codebuddy',
+  // 腾讯混元（CodeBuddy 独家）
+  'hunyuan-2.0-instruct': 'codebuddy',
+  'hunyuan-2.0-thinking': 'codebuddy',
+  // 智谱 GLM (CodeBuddy 版本号与原生不同，独立映射)
+  'glm-5.0-turbo': 'codebuddy',
+  'glm-5.0': 'codebuddy',
+  'glm-4.7': 'codebuddy',
+  // DeepSeek（CodeBuddy 提供的版本）
+  'deepseek-v3': 'codebuddy',
+  'deepseek-v3-0324': 'codebuddy',
+  'deepseek-r1': 'codebuddy',
+  // Kimi / MiniMax / Gemini（通过 CodeBuddy 代理）
+  'kimi-k2.5': 'codebuddy',
+  'minimax-m2.5': 'codebuddy',
+  'gemini-2.5-pro': 'codebuddy',
+  'gemini-2.5-flash': 'codebuddy',
+  // 通用别名
+  'default': 'codebuddy',
+  'auto': 'codebuddy'
 }
 
 // 根据模型名称获取供应商

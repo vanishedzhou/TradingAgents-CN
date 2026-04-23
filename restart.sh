@@ -122,6 +122,15 @@ if [ -n "$CB_KEY" ] && [ "$CB_KEY" != "your_codebuddy_api_key" ]; then
     echo "  ✓ CodeBuddy API Key 已写入"
 fi
 
+# 同步 CodeBuddy 全部模型到 system_configs.llm_configs（幂等，已存在则跳过）
+PYTHONPATH="$PROJECT_DIR" venv/bin/python "$PROJECT_DIR/scripts/sync_codebuddy_models.py" \
+    > /tmp/tradingagents-codebuddy-sync.log 2>&1
+if grep -qE "(已追加|已齐全)" /tmp/tradingagents-codebuddy-sync.log 2>/dev/null; then
+    tail -n 1 /tmp/tradingagents-codebuddy-sync.log | sed 's/^/  /'
+else
+    echo "  ⚠ CodeBuddy 模型同步异常，查看日志: /tmp/tradingagents-codebuddy-sync.log"
+fi
+
 # 初始化管理员账号
 PYTHONPATH="$PROJECT_DIR" venv/bin/python scripts/create_default_admin.py > /tmp/tradingagents-init.log 2>&1
 if grep -q "操作完成" /tmp/tradingagents-init.log 2>/dev/null; then
