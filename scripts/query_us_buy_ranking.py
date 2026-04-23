@@ -1,10 +1,16 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-查询最近一个批次的美股分析结果
+查询最近一个批次的美股/港股分析结果
 筛选投资建议为"买入"的股票，计算预计收益率并排名
+
+使用方法:
+    python scripts/query_us_buy_ranking.py              # 默认查询美股
+    python scripts/query_us_buy_ranking.py --market us  # 查询美股
+    python scripts/query_us_buy_ranking.py --market hk  # 查询港股
 """
 
+import argparse
 import re
 import sys
 from pathlib import Path
@@ -17,6 +23,21 @@ sys.path.insert(0, str(project_root))
 from pymongo import MongoClient
 
 
+# 市场配置
+MARKET_CONFIG = {
+    'us': {
+        'market_type': '美股',
+        'display_name': '美股',
+        'currency_symbol': '$',
+    },
+    'hk': {
+        'market_type': '港股',
+        'display_name': '港股',
+        'currency_symbol': 'HK$',
+    },
+}
+
+
 def extract_price_from_text(text: str, pattern_keywords: list) -> float | None:
     """从文本中提取价格数值"""
     if not text or not isinstance(text, str):
@@ -24,8 +45,8 @@ def extract_price_from_text(text: str, pattern_keywords: list) -> float | None:
     for kw in pattern_keywords:
         # Match patterns like: 目标价格：$185.00 or 目标价: 185 or target_price: $185
         patterns = [
-            rf'{kw}[：:]\s*[\$￥¥]?\s*([\d]+\.?\d*)',
-            rf'{kw}\s*[\$￥¥]?\s*([\d]+\.?\d*)',
+            rf'{kw}[：:]\s*(?:HK)?[\$￥¥]?\s*([\d]+\.?\d*)',
+            rf'{kw}\s*(?:HK)?[\$￥¥]?\s*([\d]+\.?\d*)',
         ]
         for pat in patterns:
             m = re.search(pat, text, re.IGNORECASE)
@@ -95,44 +116,123 @@ def extract_stop_loss_from_reports(reports: dict) -> float | None:
     return None
 
 
+def normalize_symbol(symbol: str, market_key: str) -> str:
+    """
+    把同一只股票的不同写法归一到同一个 key，用于去重。
+
+    港股示例（市场 hk）:
+        '1810.HK'  → '1810'
+        '01810'    → '1810'
+        '0700.HK'  → '700'
+        '00700'    → '700'
+        '06869'    → '6869'
+        '6869.HK'  → '6869'
+
+    美股（市场 us）: 去空格、转大写即可
+        'AAPL'     → 'AAPL'
+        ' aapl '   → 'AAPL'
+    """
+    if not symbol:
+        return ''
+    s = symbol.strip().upper()
+
+    if market_key == 'hk':
+        # 剥掉 .HK / .HKG 之类后缀
+        s = re.sub(r'\.(HK|HKG)$', '', s, flags=re.IGNORECASE)
+        # 纯数字代码: 去前导零（但保留至少 1 位）
+        if s.isdigit():
+            s = s.lstrip('0') or '0'
+        return s
+
+    # us 及其他市场
+    return s
+
+
+def parse_args():
+    """解析命令行参数"""
+    parser = argparse.ArgumentParser(
+        description='查询最近一个批次的美股/港股分析结果，筛选"买入"建议并排名',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        '--market', '-m',
+        type=str,
+        default='us',
+        choices=['us', 'hk'],
+        help='市场类型: us (美股, 默认) 或 hk (港股)',
+    )
+    parser.add_argument(
+        '--limit', '-l',
+        type=int,
+        default=50,
+        help='查询最近的分析报告数量 (默认: 50)',
+    )
+    return parser.parse_args()
+
+
 def main():
+    args = parse_args()
+
+    market_key = args.market
+    market_cfg = MARKET_CONFIG[market_key]
+    market_type = market_cfg['market_type']
+    display_name = market_cfg['display_name']
+    currency = market_cfg['currency_symbol']
+
     # Connect to MongoDB (with auth)
     client = MongoClient('mongodb://admin:tradingagents123@localhost:27017/tradingagents?authSource=admin')
     db = client['tradingagents']
 
     print("=" * 90)
-    print("📊 美股批量分析结果 - 买入建议排名（按预计收益率）")
+    print(f"📊 {display_name}批量分析结果 - 买入建议排名（按预计收益率）")
     print("=" * 90)
 
-    # Step 1: Find the latest batch of US stock analyses
-    # Query analysis_reports for US stocks (market_type=美股), sorted by created_at desc
-    us_reports = list(
+    # Step 1: Find the latest batch of analyses for the selected market
+    # Query analysis_reports for market_type, sorted by created_at desc
+    market_reports = list(
         db.analysis_reports.find(
-            {"market_type": "美股"}
-        ).sort("created_at", -1).limit(50)
+            {"market_type": market_type}
+        ).sort("created_at", -1).limit(args.limit)
     )
 
-    if not us_reports:
-        print("❌ 未找到美股分析报告")
+    if not market_reports:
+        print(f"❌ 未找到{display_name}分析报告")
         return
 
-    print(f"\n📋 共找到 {len(us_reports)} 条美股分析报告，全部展示")
+    print(f"\n📋 共找到 {len(market_reports)} 条{display_name}分析报告，全部展示")
 
     # Step 2: 去重（同一股票保留最新一条）
-    seen_symbols = {}
-    for report in us_reports:
+    # 港股的同一只股票可能有多种写法（例如 1810.HK / 01810 / 00700 / 0700.HK），
+    # 用 normalize_symbol 归一化后再去重；market_reports 已按 created_at desc 排序，
+    # 第一次遇到的就是最新一条，之后同一 canonical key 跳过。
+    seen_keys = {}  # canonical_key -> report (最新)
+    alias_map = {}  # canonical_key -> set[原始写法]
+    for report in market_reports:
         symbol = report.get('stock_symbol', '')
-        if symbol and symbol not in seen_symbols:
-            seen_symbols[symbol] = report
+        if not symbol:
+            continue
+        key = normalize_symbol(symbol, market_key)
+        if not key:
+            continue
+        alias_map.setdefault(key, set()).add(symbol)
+        if key not in seen_keys:
+            seen_keys[key] = report
 
-    latest_batch_reports = list(seen_symbols.values())
-    print(f"📦 去重后共 {len(latest_batch_reports)} 只美股（每只保留最新一条）")
+    latest_batch_reports = list(seen_keys.values())
+
+    # 提示那些"被合并"的股票，方便用户确认去重没误伤
+    merged = [(k, sorted(v)) for k, v in alias_map.items() if len(v) > 1]
+    if merged:
+        print(f"🔗 检测到 {len(merged)} 只股票存在多种代码写法，已合并:")
+        for k, variants in merged:
+            print(f"    · {k}  ⇐  {', '.join(variants)}")
+    print(f"📦 去重后共 {len(latest_batch_reports)} 只{display_name}（每只保留最新一条）")
 
     if not latest_batch_reports:
         print("❌ 未找到分析报告")
         return
 
-    print(f"\n📊 全部 {len(latest_batch_reports)} 个美股分析结果:")
+    print(f"\n📊 全部 {len(latest_batch_reports)} 个{display_name}分析结果:")
     print("-" * 90)
 
     # Step 3: Display all results and filter for "buy"
@@ -278,8 +378,8 @@ def main():
     for rank, item in enumerate(ranked_results, 1):
         symbol = item['symbol']
         name = item['name'][:10]
-        cp = f"${item['current_price']:.2f}" if item['current_price'] else "N/A"
-        tp = f"${item['target_price']:.2f}" if item['target_price'] else "N/A"
+        cp = f"{currency}{item['current_price']:.2f}" if item['current_price'] else "N/A"
+        tp = f"{currency}{item['target_price']:.2f}" if item['target_price'] else "N/A"
         er = f"{item['expected_return']:+.2f}%" if item['expected_return'] is not None else "N/A"
         rar = f"{item['risk_adjusted_return']:+.2f}%" if item['risk_adjusted_return'] is not None else "N/A"
         conf = f"{item['confidence']:.1%}" if isinstance(item['confidence'], (int, float)) and item['confidence'] <= 1 else f"{item['confidence']:.1f}%"
@@ -304,9 +404,9 @@ def main():
         conf = item['confidence']
         rs = item['risk_score']
 
-        cp_str = f"${cp:.2f}" if cp else "未提取到"
-        tp_str = f"${tp:.2f}" if tp else "未提取到"
-        sl_str = f"${sl:.2f}" if sl else "未提取到"
+        cp_str = f"{currency}{cp:.2f}" if cp else "未提取到"
+        tp_str = f"{currency}{tp:.2f}" if tp else "未提取到"
+        sl_str = f"{currency}{sl:.2f}" if sl else "未提取到"
         er_str = f"{er:+.2f}%" if er is not None else "无法计算（缺少价格数据）"
         rar_str = f"{rar:+.2f}%" if rar is not None else "N/A"
         dr_str = f"{dr:.2f}%" if dr is not None else "N/A"
@@ -340,6 +440,7 @@ def main():
         print(f"\n{'=' * 90}")
         print(f"📊 汇总统计")
         print(f"{'=' * 90}")
+        print(f"   市场类型:       {display_name}")
         print(f"   买入建议数量:   {len(ranked_results)} 只")
         print(f"   平均预计收益率: {avg_return:+.2f}%")
         print(f"   最高预计收益率: {max_return:+.2f}%")
