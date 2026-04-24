@@ -148,6 +148,32 @@ def normalize_symbol(symbol: str, market_key: str) -> str:
     return s
 
 
+def format_analysis_time(ts, short: bool = False) -> str:
+    """
+    把 analysis_reports.created_at 格式化成字符串。
+    兼容 datetime 对象 / ISO 字符串 / 空值。
+    short=True 时只显示 MM-DD HH:MM（用于列表），否则显示完整时间。
+    """
+    if not ts:
+        return '未知时间'
+    # datetime 对象
+    if isinstance(ts, datetime):
+        dt = ts
+    else:
+        # 字符串，尝试几种常见格式
+        s = str(ts).strip()
+        dt = None
+        for fmt in ('%Y-%m-%d %H:%M:%S.%f', '%Y-%m-%d %H:%M:%S', '%Y-%m-%dT%H:%M:%S.%f', '%Y-%m-%dT%H:%M:%S'):
+            try:
+                dt = datetime.strptime(s[:26] if '%f' in fmt else s[:19], fmt)
+                break
+            except ValueError:
+                continue
+        if dt is None:
+            return s  # 解析不了就原样返回
+    return dt.strftime('%m-%d %H:%M') if short else dt.strftime('%Y-%m-%d %H:%M:%S')
+
+
 def parse_args():
     """解析命令行参数"""
     parser = argparse.ArgumentParser(
@@ -269,7 +295,9 @@ def main():
             conf_str = str(confidence)
 
         action_emoji = {'买入': '🟢', '卖出': '🔴', '持有': '🟡'}.get(action, '⚪')
-        print(f"  {i:2d}. {action_emoji} {stock_symbol:6s} ({stock_name}) | 建议: {action} | 置信度: {conf_str}")
+        created_at = report.get('created_at', '')
+        time_short = format_analysis_time(created_at, short=True)
+        print(f"  {i:2d}. {action_emoji} {stock_symbol:6s} ({stock_name}) | 建议: {action} | 置信度: {conf_str} | 分析于: {time_short}")
 
         result_entry = {
             'stock_symbol': stock_symbol,
@@ -352,6 +380,7 @@ def main():
             'risk_reward_ratio': risk_reward_ratio,
             'confidence': confidence,
             'risk_score': result['risk_score'],
+            'created_at': result.get('created_at', ''),
         })
 
     # Step 5: Sort by expected return (risk-adjusted), then by raw expected return
@@ -372,8 +401,8 @@ def main():
     print(f"\n{'=' * 90}")
     print(f"🏆 买入建议预计收益率排名")
     print(f"{'=' * 90}")
-    print(f"{'排名':>4s} | {'股票':8s} | {'名称':10s} | {'现价':>10s} | {'目标价':>10s} | {'预计收益率':>10s} | {'风险调整收益':>12s} | {'置信度':>8s}")
-    print("-" * 90)
+    print(f"{'排名':>4s} | {'股票':8s} | {'名称':10s} | {'现价':>10s} | {'目标价':>10s} | {'预计收益率':>10s} | {'风险调整收益':>12s} | {'置信度':>8s} | {'分析时间':>11s}")
+    print("-" * 105)
 
     for rank, item in enumerate(ranked_results, 1):
         symbol = item['symbol']
@@ -383,9 +412,10 @@ def main():
         er = f"{item['expected_return']:+.2f}%" if item['expected_return'] is not None else "N/A"
         rar = f"{item['risk_adjusted_return']:+.2f}%" if item['risk_adjusted_return'] is not None else "N/A"
         conf = f"{item['confidence']:.1%}" if isinstance(item['confidence'], (int, float)) and item['confidence'] <= 1 else f"{item['confidence']:.1f}%"
+        t_short = format_analysis_time(item.get('created_at'), short=True)
 
         medal = {1: '🥇', 2: '🥈', 3: '🥉'}.get(rank, '  ')
-        print(f"{medal}{rank:2d}  | {symbol:8s} | {name:10s} | {cp:>10s} | {tp:>10s} | {er:>10s} | {rar:>12s} | {conf:>8s}")
+        print(f"{medal}{rank:2d}  | {symbol:8s} | {name:10s} | {cp:>10s} | {tp:>10s} | {er:>10s} | {rar:>12s} | {conf:>8s} | {t_short:>11s}")
 
     # Step 7: Detailed breakdown
     print(f"\n{'=' * 90}")
@@ -429,7 +459,8 @@ def main():
         print(f"   ├─ 下行风险:     {dr_str}")
         print(f"   ├─ 风险收益比:   {rrr_str}")
         print(f"   ├─ 置信度:       {conf_str}")
-        print(f"   └─ 风险评分:     {rs_str}")
+        print(f"   ├─ 风险评分:     {rs_str}")
+        print(f"   └─ 分析时间:     {format_analysis_time(item.get('created_at'))}")
 
     # Summary
     valid_returns = [r['expected_return'] for r in ranked_results if r['expected_return'] is not None]
