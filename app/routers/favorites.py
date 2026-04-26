@@ -3,7 +3,7 @@
 """
 
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 import logging
 
@@ -398,4 +398,49 @@ async def sync_favorites_realtime(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"同步失败: {str(e)}"
+        )
+
+
+@router.get("/analysis-history", response_model=dict)
+async def get_favorites_analysis_history(
+    symbols: Optional[str] = Query(
+        None,
+        description="逗号分隔的股票代码过滤，空则返回所有自选股"
+    ),
+    market: Optional[str] = Query(None, description="市场过滤: A股/美股/港股"),
+    limit: int = Query(100, ge=1, le=500, description="每只股票最多返回多少个分析点"),
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    返回当前用户自选股的 AI 分析历史（按股票分组的时间序列）。
+
+    每个点包含：分析时间、当时股价、AI 目标价、预计收益率、买/卖/持有、置信度。
+    """
+    try:
+        symbol_list: Optional[List[str]] = None
+        if symbols:
+            symbol_list = [s.strip() for s in symbols.split(",") if s.strip()]
+
+        series = await favorites_service.get_analysis_history(
+            user_id=current_user["id"],
+            symbols=symbol_list,
+            market=market,
+            limit=limit,
+        )
+
+        total_points = sum(len(s.get("points", [])) for s in series)
+        logger.info(
+            f"📈 分析历史查询 user={current_user['id']} "
+            f"symbols={symbol_list} market={market} → {len(series)} 只股票, {total_points} 个点"
+        )
+        return ok({
+            "series": series,
+            "total_symbols": len(series),
+            "total_points": total_points,
+        })
+    except Exception as e:
+        logger.error(f"❌ 获取自选股分析历史失败: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"获取分析历史失败: {str(e)}"
         )

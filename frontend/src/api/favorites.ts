@@ -77,6 +77,39 @@ export const favoritesApi = {
       symbols: string[]
       data_source: string
       message: string
-    }>('/api/favorites/sync-realtime', { data_source })
+    }>('/api/favorites/sync-realtime', { data_source }),
+
+  /**
+   * 获取自选股 AI 分析历史（按股票分组的时间序列，用于曲线展示）
+   */
+  getAnalysisHistory: (params?: {
+    symbols?: string[]
+    market?: string
+    limit?: number
+  }) =>
+    ApiClient.get<{
+      series: Array<{
+        stock_code: string
+        stock_name: string
+        market: string
+        points: Array<{
+          analysis_id: string
+          analyzed_at: string
+          current_price: number | null
+          target_price: number | null
+          expected_return: number | null
+          action: string | null
+          confidence: number | null
+        }>
+      }>
+      total_symbols: number
+      total_points: number
+    }>('/api/favorites/analysis-history', {
+      params: {
+        symbols: params?.symbols?.length ? params.symbols.join(',') : undefined,
+        market: params?.market,
+        limit: params?.limit,
+      },
+    })
 }
 

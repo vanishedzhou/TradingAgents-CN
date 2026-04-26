@@ -222,6 +222,9 @@
       </div>
     </el-card>
 
+    <!-- 自选股分析历史趋势 -->
+    <AnalysisHistoryChart :favorites="favorites" />
+
     <!-- 添加自选股对话框 -->
     <el-dialog
       v-model="addDialogVisible"
@@ -514,6 +517,7 @@ import { tagsApi } from '@/api/tags'
 import { stockSyncApi } from '@/api/stockSync'
 import { normalizeMarketForAnalysis } from '@/utils/market'
 import { ApiClient } from '@/api/request'
+import AnalysisHistoryChart from './AnalysisHistoryChart.vue'
 
 import type { FavoriteItem } from '@/api/favorites'
 import { useAuthStore } from '@/stores/auth'

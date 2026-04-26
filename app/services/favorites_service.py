@@ -465,6 +465,135 @@ class FavoritesService:
         # 基于股票代码生成模拟成交量
         return (hash(stock_code) % 10000 + 1000) * 100
 
+    async def get_analysis_history(
+        self,
+        user_id: str,
+        symbols: Optional[List[str]] = None,
+        market: Optional[str] = None,
+        limit: int = 100,
+    ) -> List[Dict[str, Any]]:
+        """
+        获取用户自选股的 AI 分析历史（按股票分组的时间序列）。
+
+        参数
+            user_id: 当前用户（用于默认取自选股范围）
+            symbols: 可选，只返回这些股票代码的历史；None 时取 user_favorites 全部
+            market:  可选市场过滤（"A股" / "美股" / "港股"）
+            limit:   每只股票最多返回多少条（按时间倒序）
+
+        返回
+            [
+              {
+                "stock_code": "AAPL",
+                "stock_name": "苹果",
+                "market":     "美股",
+                "points": [
+                    {
+                      "analysis_id":      str,
+                      "analyzed_at":      ISO str,
+                      "current_price":    float | None,
+                      "target_price":     float | None,
+                      "expected_return":  float | None,   # % 单位
+                      "action":           "买入" | "卖出" | "持有" | None,
+                      "confidence":       float | None,
+                    },
+                    ...
+                ]
+              },
+              ...
+            ]
+        """
+        from app.utils.report_parser import (
+            extract_current_price_from_reports,
+            extract_target_price_from_reports,
+        )
+
+        db = await self._get_db()
+
+        # 1) 解析待查 stock_code → {stock_name, market}
+        # 先读一次自选股，按需过滤
+        favorites = await self.get_user_favorites(user_id)  # 已带 market / stock_name
+        fav_map: Dict[str, Dict[str, Any]] = {}
+        for f in favorites:
+            code = f.get("stock_code")
+            if not code:
+                continue
+            fav_market = f.get("market")
+            if market and fav_market != market:
+                continue
+            if symbols and code not in symbols:
+                continue
+            fav_map[code] = {
+                "stock_code": code,
+                "stock_name": f.get("stock_name") or code,
+                "market": fav_market,
+            }
+
+        if not fav_map:
+            return []
+
+        # 2) 从 analysis_reports 拉记录。analysis_reports 是"全局"的，不绑 user_id，
+        #    所以按 stock_symbol + (可选) market_type 过滤即可。
+        #    同一股票在数据库里可能有多种代码写法（例如 1810.HK / 01810），这里
+        #    用宽松 $in 匹配用户自选股里记录的那份，不强制归一。
+        series_result: List[Dict[str, Any]] = []
+        for code, meta in fav_map.items():
+            query: Dict[str, Any] = {"stock_symbol": code}
+            if meta.get("market"):
+                query["market_type"] = meta["market"]
+
+            cursor = db.analysis_reports.find(query).sort("created_at", -1).limit(limit)
+            docs = await cursor.to_list(length=limit)
+
+            points: List[Dict[str, Any]] = []
+            for d in docs:
+                decision = d.get("decision") or {}
+                reports = d.get("reports") or {}
+
+                # 目标价：优先 decision.target_price，回退到 reports 文本
+                target_price = decision.get("target_price")
+                if not isinstance(target_price, (int, float)) or target_price is None:
+                    target_price = extract_target_price_from_reports(reports)
+
+                # 当时股价：先尝试 decision.current_price（新数据可能有），
+                # 再 fallback 到 reports.market_report 正则提取
+                current_price = decision.get("current_price")
+                if not isinstance(current_price, (int, float)) or current_price is None:
+                    current_price = extract_current_price_from_reports(reports)
+
+                action = decision.get("action")
+                confidence = decision.get("confidence")
+
+                expected_return = None
+                if (isinstance(current_price, (int, float)) and current_price > 0
+                        and isinstance(target_price, (int, float))):
+                    expected_return = round((target_price - current_price) / current_price * 100, 2)
+
+                created_at = d.get("created_at")
+                if isinstance(created_at, datetime):
+                    analyzed_at = created_at.isoformat()
+                else:
+                    analyzed_at = str(created_at) if created_at else None
+
+                points.append({
+                    "analysis_id": d.get("analysis_id") or str(d.get("_id")),
+                    "analyzed_at": analyzed_at,
+                    "current_price": current_price,
+                    "target_price": target_price,
+                    "expected_return": expected_return,
+                    "action": action,
+                    "confidence": confidence,
+                })
+
+            # 按时间正序（前端折线图更自然），反转之前倒序结果
+            points.reverse()
+            series_result.append({
+                **meta,
+                "points": points,
+            })
+
+        return series_result
+
 
 # 创建全局实例
 favorites_service = FavoritesService()
