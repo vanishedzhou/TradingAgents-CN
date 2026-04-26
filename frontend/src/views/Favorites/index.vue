@@ -88,6 +88,15 @@
               <el-icon><Download /></el-icon>
               批量同步数据
             </el-button>
+            <!-- 选中股票后显示"批量分析"按钮（A股/美股/港股均支持） -->
+            <el-button
+              v-if="selectedStocks.length > 0"
+              type="warning"
+              @click="showBatchAnalysisDialog"
+            >
+              <el-icon><DataAnalysis /></el-icon>
+              批量分析 ({{ selectedStocks.length }})
+            </el-button>
             <el-button @click="openTagManager">
               标签管理
             </el-button>
@@ -455,6 +464,71 @@
       </template>
     </el-dialog>
 
+    <!-- 批量 AI 分析对话框 -->
+    <el-dialog
+      v-model="batchAnalysisDialogVisible"
+      title="批量 AI 分析"
+      width="520px"
+    >
+      <el-alert
+        type="info"
+        :closable="false"
+        style="margin-bottom: 16px;"
+      >
+        已选择 <strong>{{ selectedStocks.length }}</strong> 只股票，将逐只发起 AI 分析任务
+      </el-alert>
+
+      <el-form :model="batchAnalysisForm" label-width="120px">
+        <el-form-item label="分析深度">
+          <el-radio-group v-model="batchAnalysisForm.researchDepth">
+            <div class="depth-option">
+              <el-radio label="快速">1级 · 快速 (2-4 分钟)</el-radio>
+            </div>
+            <div class="depth-option">
+              <el-radio label="基础">2级 · 基础 (4-6 分钟)</el-radio>
+            </div>
+            <div class="depth-option">
+              <el-radio label="标准">3级 · 标准 (6-10 分钟，推荐)</el-radio>
+            </div>
+            <div class="depth-option">
+              <el-radio label="深度">4级 · 深度 (10-15 分钟)</el-radio>
+            </div>
+            <div class="depth-option">
+              <el-radio label="全面">5级 · 全面 (15-25 分钟)</el-radio>
+            </div>
+          </el-radio-group>
+        </el-form-item>
+      </el-form>
+
+      <el-alert
+        v-if="selectedStocks.length > 10"
+        type="warning"
+        :closable="false"
+        style="margin-top: 16px;"
+      >
+        后端单次批量分析最多 10 只，本次将分 {{ Math.ceil(selectedStocks.length / 10) }} 批依次提交
+      </el-alert>
+      <el-alert
+        v-else
+        type="warning"
+        :closable="false"
+        style="margin-top: 16px;"
+      >
+        分析将在后台执行，全局同时最多 10 个并发任务。可到「任务中心」查看进度
+      </el-alert>
+
+      <template #footer>
+        <el-button @click="batchAnalysisDialogVisible = false">取消</el-button>
+        <el-button
+          type="warning"
+          @click="handleBatchAnalysis"
+          :loading="batchAnalysisLoading"
+        >
+          开始分析
+        </el-button>
+      </template>
+    </el-dialog>
+
     <!-- 单个股票同步对话框 -->
     <el-dialog
       v-model="singleSyncDialogVisible"
@@ -510,11 +584,13 @@ import {
   Search,
   Refresh,
   Plus,
-  Download
+  Download,
+  DataAnalysis
 } from '@element-plus/icons-vue'
 import { favoritesApi } from '@/api/favorites'
 import { tagsApi } from '@/api/tags'
 import { stockSyncApi } from '@/api/stockSync'
+import { analysisApi } from '@/api/analysis'
 import { normalizeMarketForAnalysis } from '@/utils/market'
 import { ApiClient } from '@/api/request'
 import AnalysisHistoryChart from './AnalysisHistoryChart.vue'
@@ -556,6 +632,13 @@ const batchSyncForm = ref({
   syncTypes: ['historical', 'financial'],
   dataSource: 'tushare' as 'tushare' | 'akshare',
   days: 365
+})
+
+// 批量 AI 分析对话框
+const batchAnalysisDialogVisible = ref(false)
+const batchAnalysisLoading = ref(false)
+const batchAnalysisForm = ref({
+  researchDepth: '标准' as '快速' | '基础' | '标准' | '深度' | '全面'
 })
 
 // 单个股票同步对话框
@@ -1114,6 +1197,87 @@ const showBatchSyncDialog = () => {
   batchSyncDialogVisible.value = true
 }
 
+// 显示批量分析对话框
+const showBatchAnalysisDialog = () => {
+  if (selectedStocks.value.length === 0) {
+    ElMessage.warning('请先选择要分析的股票')
+    return
+  }
+  batchAnalysisDialogVisible.value = true
+}
+
+// 执行批量 AI 分析（后端单次最多 10 只，超过自动分批）
+const handleBatchAnalysis = async () => {
+  if (selectedStocks.value.length === 0) {
+    ElMessage.warning('没有选中的股票')
+    return
+  }
+
+  batchAnalysisLoading.value = true
+  try {
+    const chunkSize = 10
+    const stocks = selectedStocks.value.slice()
+    const chunks: typeof stocks[] = []
+    for (let i = 0; i < stocks.length; i += chunkSize) {
+      chunks.push(stocks.slice(i, i + chunkSize))
+    }
+
+    let successBatches = 0
+    let failedBatches = 0
+    let totalTasks = 0
+    const errors: string[] = []
+
+    for (let i = 0; i < chunks.length; i++) {
+      const chunk = chunks[i]
+      const symbols = chunk
+        .map(s => s.stock_code)
+        .filter((s): s is string => !!s)
+      const batchTitle = chunks.length > 1
+        ? `自选股批量分析 ${i + 1}/${chunks.length}`
+        : `自选股批量分析（${symbols.length} 只）`
+
+      try {
+        const res: any = await analysisApi.startBatchAnalysis({
+          title: batchTitle,
+          symbols,
+          parameters: {
+            market_type: 'auto',
+            research_depth: batchAnalysisForm.value.researchDepth,
+          } as any,
+        })
+        if (res?.success) {
+          successBatches++
+          totalTasks += res.data?.total_tasks ?? symbols.length
+        } else {
+          failedBatches++
+          errors.push(res?.message || `第 ${i + 1} 批失败`)
+        }
+      } catch (e: any) {
+        failedBatches++
+        errors.push(`第 ${i + 1} 批: ${e?.message || e}`)
+      }
+    }
+
+    if (successBatches > 0 && failedBatches === 0) {
+      ElMessage.success(
+        `已提交 ${successBatches} 批次，共 ${totalTasks} 个分析任务，请到「任务中心」查看`
+      )
+    } else if (successBatches > 0) {
+      ElMessage.warning(
+        `部分成功：${successBatches} 批次成功 / ${failedBatches} 批次失败\n${errors.join('\n')}`
+      )
+    } else {
+      ElMessage.error(`全部失败：${errors.join('; ')}`)
+    }
+    batchAnalysisDialogVisible.value = false
+  } catch (e: any) {
+    console.error('批量分析失败:', e)
+    ElMessage.error(e?.message || '批量分析失败')
+  } finally {
+    batchAnalysisLoading.value = false
+  }
+}
+
 // 执行批量同步
 const handleBatchSync = async () => {
   if (batchSyncForm.value.syncTypes.length === 0) {
@@ -1269,5 +1433,10 @@ onMounted(() => {
       color: #67c23a;
     }
   }
+}
+
+.depth-option {
+  display: block;
+  margin-bottom: 6px;
 }
 </style>
