@@ -119,25 +119,87 @@ class FavoritesService:
                     it["board"] = "-"
                     it["exchange"] = "-"
 
-        # 批量获取行情（优先使用入库的 market_quotes，30秒更新）
+        # 批量获取行情（按市场从不同集合读取）
+        # A股   → market_quotes        code 6 位补零
+        # 美股  → market_quotes_us     code 大写
+        # 港股  → market_quotes_hk     code 5 位补零
         if codes:
             try:
-                coll = db["market_quotes"]
-                cursor = coll.find({"code": {"$in": codes}}, {"code": 1, "close": 1, "pct_chg": 1, "amount": 1})
-                docs = await cursor.to_list(length=None)
-                quotes_map = {str(d.get("code")).zfill(6): d for d in (docs or [])}
+                # 按市场把 items 分成三组
+                a_codes: list = []
+                us_codes: list = []
+                hk_codes: list = []
                 for it in items:
                     code = it.get("stock_code")
-                    q = quotes_map.get(code)
+                    if not code:
+                        continue
+                    market = it.get("market") or "A股"
+                    if market == "美股":
+                        us_codes.append(str(code).strip().upper())
+                    elif market == "港股":
+                        hk_codes.append(str(code).strip().upper().replace('.HK', '').lstrip('0').zfill(5))
+                    else:
+                        a_codes.append(code)
+
+                quotes_a: dict = {}
+                quotes_us: dict = {}
+                quotes_hk: dict = {}
+
+                # --- A 股 ---
+                if a_codes:
+                    coll = db["market_quotes"]
+                    cursor = coll.find(
+                        {"code": {"$in": a_codes}},
+                        {"code": 1, "close": 1, "pct_chg": 1, "amount": 1}
+                    )
+                    docs = await cursor.to_list(length=None)
+                    quotes_a = {str(d.get("code")).zfill(6): d for d in (docs or [])}
+
+                # --- 美股 ---
+                if us_codes:
+                    coll = db["market_quotes_us"]
+                    cursor = coll.find(
+                        {"code": {"$in": us_codes}},
+                        {"code": 1, "close": 1, "pct_chg": 1, "volume": 1}
+                    )
+                    docs = await cursor.to_list(length=None)
+                    quotes_us = {str(d.get("code")).upper(): d for d in (docs or [])}
+
+                # --- 港股 ---
+                if hk_codes:
+                    coll = db["market_quotes_hk"]
+                    cursor = coll.find(
+                        {"code": {"$in": hk_codes}},
+                        {"code": 1, "close": 1, "pct_chg": 1, "volume": 1}
+                    )
+                    docs = await cursor.to_list(length=None)
+                    quotes_hk = {str(d.get("code")).zfill(5): d for d in (docs or [])}
+
+                # 写回 items.current_price / change_percent
+                for it in items:
+                    code = it.get("stock_code")
+                    if not code:
+                        continue
+                    market = it.get("market") or "A股"
+                    q = None
+                    if market == "美股":
+                        q = quotes_us.get(str(code).strip().upper())
+                    elif market == "港股":
+                        q = quotes_hk.get(str(code).strip().upper().replace('.HK', '').lstrip('0').zfill(5))
+                    else:
+                        q = quotes_a.get(code)
                     if q:
                         it["current_price"] = q.get("close")
                         it["change_percent"] = q.get("pct_chg")
-                # 兜底：对未命中的代码使用在线源补齐（可选）
-                missing = [c for c in codes if c not in quotes_map]
-                if missing:
+
+                # 兜底：对未命中的 A 股代码用在线源补齐；美股/港股暂不在线兜底（需用户点击同步）
+                missing_a = [c for c in a_codes if c not in quotes_a]
+                if missing_a:
                     try:
-                        quotes_online = await get_quotes_service().get_quotes(missing)
+                        quotes_online = await get_quotes_service().get_quotes(missing_a)
                         for it in items:
+                            if (it.get("market") or "A股") != "A股":
+                                continue
                             code = it.get("stock_code")
                             if it.get("current_price") is None:
                                 q2 = quotes_online.get(code, {}) if quotes_online else {}

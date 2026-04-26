@@ -69,9 +69,9 @@
               <el-icon><Refresh /></el-icon>
               刷新
             </el-button>
-            <!-- 只有有A股自选股时才显示同步实时行情按钮 -->
+            <!-- 任何自选股（A股/美股/港股）都可以同步实时行情，后端按市场分发 -->
             <el-button
-              v-if="hasAStocks"
+              v-if="favorites.length > 0"
               type="success"
               @click="syncAllRealtime"
               :loading="syncRealtimeLoading"

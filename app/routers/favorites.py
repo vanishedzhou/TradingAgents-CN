@@ -217,7 +217,7 @@ async def get_user_tags(
 
 class SyncFavoritesRequest(BaseModel):
     """同步自选股实时行情请求"""
-    data_source: str = "tushare"  # tushare/akshare
+    data_source: str = "tushare"  # tushare/akshare 仅对 A 股生效；美股走 yfinance，港股走 yfinance
 
 
 @router.post("/sync-realtime", response_model=dict)
@@ -226,12 +226,12 @@ async def sync_favorites_realtime(
     current_user: dict = Depends(get_current_user)
 ):
     """
-    同步自选股实时行情
+    同步自选股实时行情（按市场分发）
 
-    - **data_source**: 数据源（tushare/akshare）
+    - **data_source**: A 股数据源选择（tushare/akshare），美股/港股固定走 yfinance
     """
     try:
-        logger.info(f"📊 开始同步自选股实时行情: user_id={current_user['id']}, data_source={request.data_source}")
+        logger.info(f"📊 开始同步自选股实时行情: user_id={current_user['id']}, a_share_data_source={request.data_source}")
 
         # 获取用户自选股列表
         favorites = await favorites_service.get_user_favorites(current_user["id"])
@@ -245,51 +245,151 @@ async def sync_favorites_realtime(
                 "message": "没有自选股需要同步"
             })
 
-        # 提取股票代码列表
-        symbols = [fav.get("stock_code") or fav.get("symbol") for fav in favorites]
-        symbols = [s for s in symbols if s]  # 过滤空值
+        # 按市场分组
+        by_market: dict = {"A股": [], "美股": [], "港股": []}
+        unknown: list = []
+        for fav in favorites:
+            code = fav.get("stock_code") or fav.get("symbol")
+            market = fav.get("market")
+            if not code:
+                continue
+            if market in by_market:
+                by_market[market].append(code)
+            else:
+                unknown.append(f"{code}({market})")
 
-        logger.info(f"🎯 需要同步的股票: {len(symbols)} 只 - {symbols}")
-
-        # 根据数据源选择同步服务
-        if request.data_source == "tushare":
-            from app.worker.tushare_sync_service import get_tushare_sync_service
-            service = await get_tushare_sync_service()
-        elif request.data_source == "akshare":
-            from app.worker.akshare_sync_service import get_akshare_sync_service
-            service = await get_akshare_sync_service()
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"不支持的数据源: {request.data_source}"
-            )
-
-        if not service:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail=f"{request.data_source} 服务不可用"
-            )
-
-        # 同步实时行情
-        logger.info(f"🔄 调用 {request.data_source} 同步服务...")
-        sync_result = await service.sync_realtime_quotes(
-            symbols=symbols,
-            force=True  # 强制执行，跳过交易时间检查
+        logger.info(
+            f"🎯 按市场分组: A股={len(by_market['A股'])} 只, "
+            f"美股={len(by_market['美股'])} 只, "
+            f"港股={len(by_market['港股'])} 只"
+            + (f", 未知市场={unknown}" if unknown else "")
         )
 
-        success_count = sync_result.get("success_count", 0)
-        failed_count = sync_result.get("failed_count", 0)
+        total_symbols = sum(len(v) for v in by_market.values())
+        aggregate = {
+            "total": total_symbols,
+            "success_count": 0,
+            "failed_count": 0,
+            "by_market": {},
+            "errors": [],
+        }
+        if unknown:
+            aggregate["errors"].append(f"跳过未知市场股票: {unknown}")
 
-        logger.info(f"✅ 自选股实时行情同步完成: 成功 {success_count}/{len(symbols)} 只")
+        # --- A 股：按 request.data_source 走 tushare/akshare ---
+        if by_market["A股"]:
+            try:
+                if request.data_source == "tushare":
+                    from app.worker.tushare_sync_service import get_tushare_sync_service
+                    a_service = await get_tushare_sync_service()
+                elif request.data_source == "akshare":
+                    from app.worker.akshare_sync_service import get_akshare_sync_service
+                    a_service = await get_akshare_sync_service()
+                else:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"不支持的 A 股数据源: {request.data_source}"
+                    )
 
-        return ok({
-            "total": len(symbols),
-            "success_count": success_count,
-            "failed_count": failed_count,
-            "symbols": symbols,
-            "data_source": request.data_source,
-            "message": f"同步完成: 成功 {success_count} 只，失败 {failed_count} 只"
-        })
+                if not a_service:
+                    raise HTTPException(
+                        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                        detail=f"A 股数据源 {request.data_source} 不可用"
+                    )
+
+                a_result = await a_service.sync_realtime_quotes(
+                    symbols=by_market["A股"], force=True
+                )
+                succ = a_result.get("success_count", 0)
+                fail = a_result.get("failed_count", 0)
+                aggregate["success_count"] += succ
+                aggregate["failed_count"] += fail
+                aggregate["by_market"]["A股"] = {
+                    "data_source": request.data_source,
+                    "success_count": succ,
+                    "failed_count": fail,
+                    "symbols": by_market["A股"],
+                }
+                logger.info(f"✅ A股同步: 成功 {succ}/{len(by_market['A股'])} 只")
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"❌ A股同步异常: {e}", exc_info=True)
+                aggregate["failed_count"] += len(by_market["A股"])
+                aggregate["errors"].append(f"A股: {e}")
+                aggregate["by_market"]["A股"] = {
+                    "data_source": request.data_source,
+                    "success_count": 0,
+                    "failed_count": len(by_market["A股"]),
+                    "error": str(e),
+                }
+
+        # --- 美股：yfinance ---
+        if by_market["美股"]:
+            try:
+                from app.worker.us_sync_service import get_us_sync_service
+                us_service = await get_us_sync_service()
+                us_result = await us_service.sync_realtime_quotes(
+                    symbols=by_market["美股"], force=True
+                )
+                succ = us_result.get("success_count", 0)
+                fail = us_result.get("failed_count", 0)
+                aggregate["success_count"] += succ
+                aggregate["failed_count"] += fail
+                aggregate["by_market"]["美股"] = {
+                    "data_source": "yfinance",
+                    "success_count": succ,
+                    "failed_count": fail,
+                    "symbols": by_market["美股"],
+                }
+                logger.info(f"✅ 美股同步: 成功 {succ}/{len(by_market['美股'])} 只")
+            except Exception as e:
+                logger.error(f"❌ 美股同步异常: {e}", exc_info=True)
+                aggregate["failed_count"] += len(by_market["美股"])
+                aggregate["errors"].append(f"美股: {e}")
+                aggregate["by_market"]["美股"] = {
+                    "data_source": "yfinance",
+                    "success_count": 0,
+                    "failed_count": len(by_market["美股"]),
+                    "error": str(e),
+                }
+
+        # --- 港股：yfinance ---
+        if by_market["港股"]:
+            try:
+                from app.worker.hk_sync_service import get_hk_sync_service
+                hk_service = await get_hk_sync_service()
+                hk_result = await hk_service.sync_realtime_quotes(
+                    symbols=by_market["港股"], force=True
+                )
+                succ = hk_result.get("success_count", 0)
+                fail = hk_result.get("failed_count", 0)
+                aggregate["success_count"] += succ
+                aggregate["failed_count"] += fail
+                aggregate["by_market"]["港股"] = {
+                    "data_source": "yfinance",
+                    "success_count": succ,
+                    "failed_count": fail,
+                    "symbols": by_market["港股"],
+                }
+                logger.info(f"✅ 港股同步: 成功 {succ}/{len(by_market['港股'])} 只")
+            except Exception as e:
+                logger.error(f"❌ 港股同步异常: {e}", exc_info=True)
+                aggregate["failed_count"] += len(by_market["港股"])
+                aggregate["errors"].append(f"港股: {e}")
+                aggregate["by_market"]["港股"] = {
+                    "data_source": "yfinance",
+                    "success_count": 0,
+                    "failed_count": len(by_market["港股"]),
+                    "error": str(e),
+                }
+
+        aggregate["message"] = (
+            f"同步完成: 成功 {aggregate['success_count']} / 总计 {aggregate['total']} 只 "
+            f"(A股 {len(by_market['A股'])} / 美股 {len(by_market['美股'])} / 港股 {len(by_market['港股'])})"
+        )
+        logger.info(f"✅ 自选股实时行情同步总览: {aggregate['message']}")
+        return ok(aggregate)
 
     except HTTPException:
         raise

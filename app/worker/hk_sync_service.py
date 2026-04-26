@@ -459,15 +459,176 @@ class HKDataService:
         return result
 
 
+    async def sync_realtime_quotes(
+        self,
+        symbols: List[str],
+        force: bool = True,
+        source: str = "yfinance",
+    ) -> Dict[str, int]:
+        """
+        按给定的 symbols 列表同步港股实时行情（自选股场景）。
+
+        自动把常见的港股代码写法规范化为 yfinance 接受的 '0700.HK' 形式：
+          '0700'    → '0700.HK'
+          '00700'   → '0700.HK'
+          '0700.HK' → '0700.HK'
+          '9868'    → '9868.HK'
+
+        实现细节:
+          - 使用 yf.download(...) 批量拉取（避开 ticker.history 的限流）
+          - 为避免 lookup 失败，内部维护 (yf_code, store_key) 映射
+          - 入库 code 用 5 位补零的港股代码
+
+        Args:
+            symbols: 港股代码列表
+            force:   签名兼容占位
+            source:  保留参数（默认 yfinance），目前只实现 yfinance 通道
+
+        Returns:
+            同 us_sync_service.sync_realtime_quotes
+        """
+        import yfinance as yf
+        from pymongo import UpdateOne
+
+        symbols = [s for s in (symbols or []) if s]
+        if not symbols:
+            return {"total_processed": 0, "success_count": 0, "failed_count": 0, "errors": []}
+
+        # 原始 → (yf_code, store_key)
+        def normalize(raw: str):
+            c = str(raw).strip().upper().replace('.HK', '')
+            digits = c.lstrip('0') or '0'            # '00700' → '700'
+            yf_code = f"{int(digits):04d}.HK"        # '700' → '0700.HK'
+            store_key = digits.zfill(5)              # 入库用 5 位补零 '00700'
+            return yf_code, store_key
+
+        pairs = []
+        for raw in symbols:
+            try:
+                yf_code, store_key = normalize(raw)
+                pairs.append((raw, yf_code, store_key))
+            except Exception as e:
+                logger.warning(f"⚠️ [HK] 代码规范化失败 {raw}: {e}")
+
+        yf_codes = [p[1] for p in pairs]
+        logger.info(f"🇭🇰 按需同步港股实时行情: {len(pairs)} 只 - yf={yf_codes}")
+
+        operations = []
+        success_count = 0
+        failed_count = 0
+        errors: List[str] = []
+        handled = set()
+
+        # --- 批量 download ---
+        try:
+            df = yf.download(
+                tickers=" ".join(yf_codes),
+                period="1d",
+                progress=False,
+                auto_adjust=True,
+                group_by='ticker',
+                threads=True,
+            )
+            if df is not None and not df.empty:
+                for raw, yf_code, store_key in pairs:
+                    try:
+                        if len(yf_codes) == 1:
+                            sub = df
+                        else:
+                            if yf_code not in df.columns.get_level_values(0):
+                                raise KeyError(f"no data for {yf_code}")
+                            sub = df[yf_code]
+                        if sub.empty or 'Close' not in sub.columns:
+                            raise ValueError("empty / missing Close")
+                        latest = sub.dropna().iloc[-1]
+                        close_price = float(latest['Close'])
+                        open_price = float(latest.get('Open') or close_price)
+                        normalized = {
+                            "code": store_key,
+                            "close": close_price,
+                            "open": open_price,
+                            "high": float(latest.get('High') or close_price),
+                            "low": float(latest.get('Low') or close_price),
+                            "volume": int(latest.get('Volume') or 0),
+                            "currency": "HKD",
+                            "updated_at": datetime.now(),
+                        }
+                        if open_price > 0:
+                            normalized["pct_chg"] = round((close_price - open_price) / open_price * 100, 2)
+                        operations.append(UpdateOne({"code": store_key}, {"$set": normalized}, upsert=True))
+                        success_count += 1
+                        handled.add(raw)
+                        logger.debug(f"✅ [HK] {raw} (yf={yf_code}) close={close_price} HKD")
+                    except Exception as e:
+                        logger.warning(f"⚠️ [HK] 批量解析 {yf_code} 失败: {e}，稍后兜底")
+            else:
+                logger.warning("⚠️ [HK] yf.download 返回空")
+        except Exception as e:
+            logger.warning(f"⚠️ [HK] yf.download 调用异常: {e}，降级为逐个调用")
+
+        # --- 兜底: 走 provider.get_real_time_price（当 yf.download 批量失败） ---
+        provider = self.providers.get(source)
+        for raw, yf_code, store_key in pairs:
+            if raw in handled:
+                continue
+            if not provider:
+                failed_count += 1
+                errors.append(f"{raw}: no provider fallback")
+                continue
+            try:
+                digits = yf_code.replace('.HK', '').lstrip('0') or '0'
+                quote = provider.get_real_time_price(digits)
+                if not quote or not quote.get('price'):
+                    failed_count += 1
+                    errors.append(f"{raw}: empty data")
+                    continue
+                open_price = float(quote.get('open') or 0)
+                close_price = float(quote.get('price') or 0)
+                normalized = {
+                    "code": store_key,
+                    "close": close_price,
+                    "open": open_price,
+                    "high": float(quote.get('high') or 0),
+                    "low": float(quote.get('low') or 0),
+                    "volume": int(quote.get('volume') or 0),
+                    "currency": "HKD",
+                    "updated_at": datetime.now(),
+                }
+                if open_price > 0:
+                    normalized["pct_chg"] = round((close_price - open_price) / open_price * 100, 2)
+                operations.append(UpdateOne({"code": store_key}, {"$set": normalized}, upsert=True))
+                success_count += 1
+                handled.add(raw)
+                logger.debug(f"✅ [HK] (兜底) {raw} close={close_price} HKD")
+            except Exception as e:
+                logger.error(f"❌ [HK] 兜底失败 {raw}: {e}")
+                failed_count += 1
+                errors.append(f"{raw}: {e}")
+
+        if operations:
+            try:
+                await self.db.market_quotes_hk.bulk_write(operations)
+            except Exception as e:
+                logger.error(f"❌ [HK] 批量写入失败: {e}")
+                errors.append(f"bulk_write: {e}")
+
+        return {
+            "total_processed": len(symbols),
+            "success_count": success_count,
+            "failed_count": failed_count,
+            "errors": errors,
+        }
+
+
 # ==================== 全局服务实例 ====================
 
 _hk_sync_service = None
 
-async def get_hk_sync_service() -> HKSyncService:
+async def get_hk_sync_service() -> HKDataService:
     """获取港股同步服务实例"""
     global _hk_sync_service
     if _hk_sync_service is None:
-        _hk_sync_service = HKSyncService()
+        _hk_sync_service = HKDataService()
         await _hk_sync_service.initialize()
     return _hk_sync_service
 

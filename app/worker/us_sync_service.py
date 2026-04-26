@@ -382,6 +382,165 @@ class USSyncService:
         return result
 
 
+    async def sync_realtime_quotes(
+        self,
+        symbols: List[str],
+        force: bool = True,  # 签名与 tushare/akshare 对齐，这里 force 不影响行为
+    ) -> Dict[str, int]:
+        """
+        按给定的 symbols 列表同步美股实时行情（自选股场景使用）。
+
+        与 sync_quotes_from_source() 的区别：后者遍历全美股列表，
+        适合批量全量同步；本方法只处理指定的少量股票，适合自选股刷新。
+
+        实现细节:
+          - 使用 yf.download(...) 一次性拿多只，避免 yf.Ticker().history() 的严格限流
+          - 若批量 download 返回空，降级到单只 Ticker().history() 兜底
+          - BRKB → BRK-B 等代码规范化
+
+        Args:
+            symbols: 美股代码列表，例如 ["AAPL", "META", "BRKB"]
+            force:   签名兼容占位，本方法始终执行
+
+        Returns:
+            {
+                "total_processed": int,
+                "success_count":   int,
+                "failed_count":    int,
+                "errors":          [str, ...],
+            }
+        """
+        import yfinance as yf
+        from pymongo import UpdateOne
+
+        symbols = [s for s in (symbols or []) if s]
+        if not symbols:
+            return {"total_processed": 0, "success_count": 0, "failed_count": 0, "errors": []}
+
+        # 原始代码 → yfinance 代码（保留原始代码供入库使用）
+        def to_yf(code: str) -> str:
+            c = str(code).strip().upper()
+            # BRKB → BRK-B；其它带点的代码转成 yfinance 的 dash 形式
+            if '.' in c:
+                return c.replace('.', '-')
+            # 简单处理一些常见别名
+            if c == 'BRKB':
+                return 'BRK-B'
+            return c
+
+        code_map = {to_yf(c): str(c).strip().upper() for c in symbols}  # yf_code → original
+        yf_codes = list(code_map.keys())
+        logger.info(f"🇺🇸 按需同步美股实时行情: {len(symbols)} 只 - {symbols}  (yfinance 代码: {yf_codes})")
+
+        operations = []
+        success_count = 0
+        failed_count = 0
+        errors: List[str] = []
+        handled = set()  # 已经处理过的原始代码（避免兜底重复处理）
+
+        # --- 方案 A: 批量 download（对限流友好） ---
+        try:
+            df = yf.download(
+                tickers=" ".join(yf_codes),
+                period="1d",
+                progress=False,
+                auto_adjust=True,
+                group_by='ticker',
+                threads=True,
+            )
+            if df is not None and not df.empty:
+                for yf_code in yf_codes:
+                    original = code_map[yf_code]
+                    try:
+                        # 多标的：df 是 MultiIndex 列；单标的：df 是普通列
+                        if len(yf_codes) == 1:
+                            sub = df
+                        else:
+                            if yf_code not in df.columns.get_level_values(0):
+                                raise KeyError(f"no data in download for {yf_code}")
+                            sub = df[yf_code]
+                        if sub.empty or 'Close' not in sub.columns:
+                            raise ValueError("empty / missing Close")
+
+                        latest = sub.dropna().iloc[-1]
+                        close_price = float(latest['Close'])
+                        open_price = float(latest.get('Open') or close_price)
+                        quote = {
+                            "code": original,
+                            "close": close_price,
+                            "open": open_price,
+                            "high": float(latest.get('High') or close_price),
+                            "low": float(latest.get('Low') or close_price),
+                            "volume": int(latest.get('Volume') or 0),
+                            "currency": "USD",
+                            "updated_at": datetime.now(),
+                        }
+                        if open_price > 0:
+                            quote["pct_chg"] = round((close_price - open_price) / open_price * 100, 2)
+                        operations.append(UpdateOne({"code": original}, {"$set": quote}, upsert=True))
+                        success_count += 1
+                        handled.add(original)
+                        logger.debug(f"✅ [US] {original} (yf={yf_code}) close={close_price} USD")
+                    except Exception as e:
+                        logger.warning(f"⚠️ [US] 批量 download 解析 {yf_code} 失败: {e}，稍后尝试兜底")
+            else:
+                logger.warning("⚠️ [US] yf.download 返回空")
+        except Exception as e:
+            logger.warning(f"⚠️ [US] yf.download 调用异常: {e}，降级为逐个 Ticker")
+
+        # --- 方案 B: 对批量未覆盖的代码逐个 Ticker().history() 兜底 ---
+        for yf_code, original in code_map.items():
+            if original in handled:
+                continue
+            try:
+                ticker = yf.Ticker(yf_code)
+                data = ticker.history(period="1d")
+                if data is None or data.empty:
+                    logger.warning(f"⚠️ [US] 兜底仍为空: {original}")
+                    failed_count += 1
+                    errors.append(f"{original}: empty data")
+                    continue
+
+                latest = data.iloc[-1]
+                close_price = float(latest['Close'])
+                open_price = float(latest['Open'])
+                quote = {
+                    "code": original,
+                    "close": close_price,
+                    "open": open_price,
+                    "high": float(latest['High']),
+                    "low": float(latest['Low']),
+                    "volume": int(latest['Volume']),
+                    "currency": "USD",
+                    "updated_at": datetime.now(),
+                }
+                if open_price > 0:
+                    quote["pct_chg"] = round((close_price - open_price) / open_price * 100, 2)
+                operations.append(UpdateOne({"code": original}, {"$set": quote}, upsert=True))
+                success_count += 1
+                handled.add(original)
+                logger.debug(f"✅ [US] (兜底) {original} close={close_price} USD")
+            except Exception as e:
+                logger.error(f"❌ [US] 兜底失败 {original}: {e}")
+                failed_count += 1
+                errors.append(f"{original}: {e}")
+
+        # 批量写入 market_quotes_us
+        if operations:
+            try:
+                await self.db.market_quotes_us.bulk_write(operations)
+            except Exception as e:
+                logger.error(f"❌ [US] 批量写入 market_quotes_us 失败: {e}")
+                errors.append(f"bulk_write: {e}")
+
+        return {
+            "total_processed": len(symbols),
+            "success_count": success_count,
+            "failed_count": failed_count,
+            "errors": errors,
+        }
+
+
 # ==================== 全局服务实例 ====================
 
 _us_sync_service = None
