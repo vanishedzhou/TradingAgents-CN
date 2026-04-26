@@ -113,8 +113,25 @@ const loadData = async () => {
     const res: any = await favoritesApi.getAnalysisHistory({ limit: 50 })
     const data = res?.data ?? res
     series.value = data?.series ?? []
-    // 默认全选
-    selectedCodes.value = series.value.map(s => s.stock_code)
+    // 默认只选"最近一次分析"最新的那一只股票，避免多条曲线同屏挤在一起
+    // 时间取该 series 里最后一个点的 analyzed_at（points 已按时间正序）
+    const pickLatestCode = (): string | null => {
+      let bestCode: string | null = null
+      let bestTs = -Infinity
+      for (const s of series.value) {
+        const last = s.points[s.points.length - 1]
+        if (!last || !last.analyzed_at) continue
+        const ts = new Date(last.analyzed_at).getTime()
+        if (!Number.isNaN(ts) && ts > bestTs) {
+          bestTs = ts
+          bestCode = s.stock_code
+        }
+      }
+      // 兜底：如果没有任何带时间的点，就选第一只
+      return bestCode ?? (series.value[0]?.stock_code ?? null)
+    }
+    const latest = pickLatestCode()
+    selectedCodes.value = latest ? [latest] : []
     await nextTick()
     renderChart()
   } catch (e: any) {
