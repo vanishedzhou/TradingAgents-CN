@@ -581,25 +581,25 @@ async def lifespan(app: FastAPI):
 
         scheduler.add_job(
             run_favorites_analysis_a_hk_morning,
-            CronTrigger(day_of_week='1-5', hour=10, minute=30, timezone=settings.TIMEZONE),
+            CronTrigger(day_of_week='mon-fri', hour=10, minute=30, timezone=settings.TIMEZONE),
             id="favorites_analysis_a_hk_morning",
             name="自选股定时分析（A股/港股 · 盘中10:30）",
         )
         scheduler.add_job(
             run_favorites_analysis_a_hk_afternoon,
-            CronTrigger(day_of_week='1-5', hour=16, minute=30, timezone=settings.TIMEZONE),
+            CronTrigger(day_of_week='mon-fri', hour=16, minute=30, timezone=settings.TIMEZONE),
             id="favorites_analysis_a_hk_afternoon",
             name="自选股定时分析（A股/港股 · 收盘后16:30）",
         )
         scheduler.add_job(
             run_favorites_analysis_us_morning,
-            CronTrigger(day_of_week='1-5', hour=9, minute=30, timezone=settings.TIMEZONE),
+            CronTrigger(day_of_week='mon-fri', hour=9, minute=30, timezone=settings.TIMEZONE),
             id="favorites_analysis_us_morning",
             name="自选股定时分析（美股 · 09:30）",
         )
         scheduler.add_job(
             run_favorites_analysis_us_evening,
-            CronTrigger(day_of_week='1-5', hour=22, minute=30, timezone=settings.TIMEZONE),
+            CronTrigger(day_of_week='mon-fri', hour=22, minute=30, timezone=settings.TIMEZONE),
             id="favorites_analysis_us_evening",
             name="自选股定时分析（美股 · 22:30）",
         )
