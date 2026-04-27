@@ -118,9 +118,11 @@ class TushareProvider(BaseStockDataProvider):
                     self.api = ts.pro_api()
 
                     # 测试连接 - 直接调用同步方法（不使用 asyncio.run）
+                    # 改用 daily 代替 stock_basic：120 积分 token 的 stock_basic 限流 1次/小时，
+                    # 而 daily 限流宽松（每分钟几百次），更适合做连通性探测
                     try:
-                        self.logger.info("🔄 [步骤3.1] 调用 stock_basic API 测试连接...")
-                        test_data = self.api.stock_basic(list_status='L', limit=1)
+                        self.logger.info("🔄 [步骤3.1] 调用 daily API 测试连接...")
+                        test_data = self.api.daily(ts_code='000001.SZ', limit=1)
                         self.logger.info(f"✅ [步骤3.1] API 调用成功，返回数据: {len(test_data) if test_data is not None else 0} 条")
                     except Exception as e:
                         self.logger.warning(f"⚠️ [步骤3.1] 数据库 Token 测试失败: {e}，尝试降级到 .env 配置...")
@@ -144,9 +146,10 @@ class TushareProvider(BaseStockDataProvider):
                     self.api = ts.pro_api()
 
                     # 测试连接 - 直接调用同步方法（不使用 asyncio.run）
+                    # 同上：用 daily 替代 stock_basic 规避 1次/小时 限流
                     try:
-                        self.logger.info("🔄 [步骤4.1] 调用 stock_basic API 测试连接...")
-                        test_data = self.api.stock_basic(list_status='L', limit=1)
+                        self.logger.info("🔄 [步骤4.1] 调用 daily API 测试连接...")
+                        test_data = self.api.daily(ts_code='000001.SZ', limit=1)
                         self.logger.info(f"✅ [步骤4.1] API 调用成功，返回数据: {len(test_data) if test_data is not None else 0} 条")
                     except Exception as e:
                         self.logger.error(f"❌ [步骤4.1] .env Token 测试失败: {e}")
@@ -194,11 +197,12 @@ class TushareProvider(BaseStockDataProvider):
                     self.api = ts.pro_api()
 
                     # 测试连接（异步）- 使用超时
+                    # 用 daily 替代 stock_basic：stock_basic 在 120 积分 token 下限流 1次/小时
                     try:
                         test_data = await asyncio.wait_for(
                             asyncio.to_thread(
-                                self.api.stock_basic,
-                                list_status='L',
+                                self.api.daily,
+                                ts_code='000001.SZ',
                                 limit=1
                             ),
                             timeout=test_timeout
@@ -224,11 +228,12 @@ class TushareProvider(BaseStockDataProvider):
                     self.api = ts.pro_api()
 
                     # 测试连接（异步）- 使用超时
+                    # 同样改用 daily 代替 stock_basic
                     try:
                         test_data = await asyncio.wait_for(
                             asyncio.to_thread(
-                                self.api.stock_basic,
-                                list_status='L',
+                                self.api.daily,
+                                ts_code='000001.SZ',
                                 limit=1
                             ),
                             timeout=test_timeout

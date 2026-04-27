@@ -40,8 +40,8 @@ US_MARKETS = ("美股",)
 RESEARCH_DEPTH = "全面"  # 5 级全面分析
 
 # 跨所有 favorites_analysis_* cron 共享的并发闸门
-# 通过环境变量 FAVORITES_ANALYSIS_CONCURRENCY 覆盖（默认 3）
-_FAV_CONCURRENCY = int(os.environ.get("FAVORITES_ANALYSIS_CONCURRENCY", "3"))
+# 通过环境变量 FAVORITES_ANALYSIS_CONCURRENCY 覆盖（默认 5）
+_FAV_CONCURRENCY = int(os.environ.get("FAVORITES_ANALYSIS_CONCURRENCY", "5"))
 _ANALYSIS_SEMAPHORE: asyncio.Semaphore | None = None
 
 
