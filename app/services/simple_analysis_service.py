@@ -2159,15 +2159,17 @@ class SimpleAnalysisService:
                         # GET /api/analysis/tasks/{task_id}/result 拿
                         "result_data": None,
                     }
-                    # 时间格式转为 ISO 字符串（添加时区信息）
+                    # 时间格式转为带时区的 ISO 字符串
+                    # MongoDB 里 started_at / completed_at 是 UTC naive datetime（
+                    # 由 datetime.utcnow() 或 unaware datetime.now() 写入），
+                    # 所以 naive 应该假定为 UTC，而不是 UTC+8。
+                    # 输出带 +00:00 后缀，浏览器 new Date() 会自动换算成用户本地时区。
                     for k in ("start_time", "end_time"):
                         if item.get(k) and hasattr(item[k], "isoformat"):
                             dt = item[k]
-                            # 如果是 naive datetime（没有时区信息），假定为 UTC+8
                             if dt.tzinfo is None:
-                                from datetime import timezone, timedelta
-                                china_tz = timezone(timedelta(hours=8))
-                                dt = dt.replace(tzinfo=china_tz)
+                                from datetime import timezone
+                                dt = dt.replace(tzinfo=timezone.utc)
                             item[k] = dt.isoformat()
                     mongo_tasks.append(item)
 
@@ -2219,24 +2221,37 @@ class SimpleAnalysisService:
             results = merged_tasks[offset:offset + limit]
 
             # 🔥 统一处理时区信息（确保所有时间字段都有时区标识）
+            # 注意：
+            # - MongoDB 里存的是 UTC naive datetime（datetime.utcnow 写入）
+            # - memory_manager 里存的是本地时间 naive datetime（datetime.now 写入）
+            # 两者不能一概而论，这里按"字段是否来自 MongoDB 原始字段"区分：
+            # created_at / started_at / completed_at → UTC
+            # start_time / end_time → 可能是 UTC（走 mongo 分支已显式挂 tz），
+            #   也可能是 local naive（memory_manager 的 to_dict 产生的 iso 字符串）
             from datetime import timezone, timedelta
+            utc_tz = timezone.utc
             china_tz = timezone(timedelta(hours=8))
+
+            utc_fields = {"created_at", "started_at", "completed_at"}
 
             for task in results:
                 for time_field in ("start_time", "end_time", "created_at", "started_at", "completed_at"):
                     value = task.get(time_field)
-                    if value:
-                        # 如果是 datetime 对象
-                        if hasattr(value, "isoformat"):
-                            # 如果是 naive datetime，添加时区信息
-                            if value.tzinfo is None:
-                                value = value.replace(tzinfo=china_tz)
-                            task[time_field] = value.isoformat()
-                        # 如果是字符串且没有时区标识，添加时区标识
-                        elif isinstance(value, str) and value and not value.endswith(('Z', '+08:00', '+00:00')):
-                            # 检查是否是 ISO 格式的时间字符串
-                            if 'T' in value or ' ' in value:
-                                task[time_field] = value.replace(' ', 'T') + '+08:00'
+                    if not value:
+                        continue
+                    # datetime 对象：按字段来源决定时区
+                    if hasattr(value, "isoformat"):
+                        if value.tzinfo is None:
+                            tz_for_field = utc_tz if time_field in utc_fields else china_tz
+                            value = value.replace(tzinfo=tz_for_field)
+                        task[time_field] = value.isoformat()
+                    # 字符串且没有时区标识：统一追加 +08:00
+                    # （start_time/end_time 只有在走 memory 路径时到这里还是 naive 字符串，
+                    # memory 里存的是本地时间 datetime.now()，所以补 +08:00 是对的）
+                    elif isinstance(value, str) and value and not (value.endswith('Z') or '+' in value[10:] or '-' in value[10:]):
+                        if 'T' in value or ' ' in value:
+                            suffix = '+00:00' if time_field in utc_fields else '+08:00'
+                            task[time_field] = value.replace(' ', 'T') + suffix
 
             # 为结果补齐股票名称
             results = self._enrich_stock_names(results)
