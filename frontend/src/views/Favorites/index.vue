@@ -1189,10 +1189,12 @@ const removeFavorite = async (row: any) => {
 }
 
 const viewStockDetail = (row: any) => {
-  router.push({
+  // 新标签页打开，不跳走当前自选股列表
+  const href = router.resolve({
     name: 'StockDetail',
-    params: { code: String(row.stock_code || '').toUpperCase() }
-  })
+    params: { code: String(row.stock_code || '').toUpperCase() },
+  }).href
+  window.open(href, '_blank', 'noopener')
 }
 
 // 点击自选股名称：让下方曲线图只显示这只股票，并滚动到曲线图位置
