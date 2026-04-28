@@ -126,7 +126,18 @@
           </template>
         </el-table-column>
 
-        <el-table-column prop="stock_name" label="股票名称" width="150" />
+        <el-table-column prop="stock_name" label="股票名称" width="150">
+          <template #default="{ row }">
+            <el-link
+              type="primary"
+              :underline="false"
+              @click="focusChartOnStock(row)"
+              title="点击在下方曲线图中只显示这只股票"
+            >
+              {{ row.stock_name }}
+            </el-link>
+          </template>
+        </el-table-column>
         <el-table-column prop="market" label="市场" width="80">
           <template #default="{ row }">
             {{ row.market || 'A股' }}
@@ -271,7 +282,7 @@
     </el-card>
 
     <!-- 自选股分析历史趋势 -->
-    <AnalysisHistoryChart :favorites="favorites" />
+    <AnalysisHistoryChart ref="analysisChartRef" :favorites="favorites" />
 
     <!-- 添加自选股对话框 -->
     <el-dialog
@@ -654,6 +665,9 @@ const favorites = ref<FavoriteItem[]>([])
 const userTags = ref<string[]>([])
 const tagColorMap = ref<Record<string, string>>({})
 const getTagColor = (name: string) => tagColorMap.value[name] || ''
+
+// 下方的分析历史曲线图组件引用（用于点击股票名称时让它聚焦某只）
+const analysisChartRef = ref<InstanceType<typeof AnalysisHistoryChart> | null>(null)
 
 const searchKeyword = ref('')
 const selectedTag = ref('')
@@ -1179,6 +1193,13 @@ const viewStockDetail = (row: any) => {
     name: 'StockDetail',
     params: { code: String(row.stock_code || '').toUpperCase() }
   })
+}
+
+// 点击自选股名称：让下方曲线图只显示这只股票，并滚动到曲线图位置
+const focusChartOnStock = (row: any) => {
+  const code = row?.stock_code || row?.symbol
+  if (!code) return
+  analysisChartRef.value?.focusStock?.(code)
 }
 
 // 处理表格选择变化

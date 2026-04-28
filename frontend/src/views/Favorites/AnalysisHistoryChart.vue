@@ -56,7 +56,7 @@
         <span class="legend-dot buy"></span> 买入
         <span class="legend-dot sell"></span> 卖出
         <span class="legend-dot hold"></span> 持有
-        <span class="tip">· 实线 = 当时股价 · 虚线 = AI 目标价 · 悬停查看预计收益率</span>
+        <span class="tip">· 实线 = 当时股价 · 虚线 = AI 目标价 · 悬停查看预计收益率 · 点击点位查看完整分析报告</span>
       </div>
     </div>
   </el-card>
@@ -67,7 +67,10 @@ import { ref, onMounted, onBeforeUnmount, computed, watch, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
 import { TrendCharts, Refresh } from '@element-plus/icons-vue'
 import * as echarts from 'echarts'
+import { useRouter } from 'vue-router'
 import { favoritesApi } from '@/api/favorites'
+
+const router = useRouter()
 
 // 类型
 interface AnalysisPoint {
@@ -165,6 +168,13 @@ const renderChart = () => {
   if (!chartRef.value) return
   if (!chartInstance) {
     chartInstance = echarts.init(chartRef.value)
+    // 点击点位 → 跳转到对应的分析报告详情页
+    chartInstance.on('click', (params: any) => {
+      const p: AnalysisPoint | undefined = params?.data?.pointMeta
+      if (p?.analysis_id) {
+        router.push({ name: 'ReportDetail', params: { id: p.analysis_id } })
+      }
+    })
   }
 
   const selected = new Set(selectedCodes.value)
@@ -280,6 +290,27 @@ watch(
     loadData()
   },
 )
+
+/**
+ * 外部调用：在图表中只显示某只股票，并把视口滚动到图表。
+ * 如果当前 series 里还没有这只股票（刚加的自选股 + 还没有历史），
+ * 先强制刷新一次，拿到后再切。
+ */
+const focusStock = async (stockCode: string) => {
+  if (!stockCode) return
+  const has = series.value.some(s => s.stock_code === stockCode)
+  if (!has) {
+    // 数据里还没这只，就先拉一次看能不能拿到
+    await loadData()
+  }
+  selectedCodes.value = [stockCode]
+  await nextTick()
+  renderChart()
+  // 滚动到图表位置
+  chartRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
+defineExpose({ focusStock })
 </script>
 
 <style scoped>
