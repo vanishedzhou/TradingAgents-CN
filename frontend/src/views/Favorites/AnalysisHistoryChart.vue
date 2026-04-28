@@ -56,7 +56,7 @@
         <span class="legend-dot buy"></span> 买入
         <span class="legend-dot sell"></span> 卖出
         <span class="legend-dot hold"></span> 持有
-        <span class="tip">· 实线 = 当时股价 · 虚线 = AI 目标价 · 悬停查看预计收益率 · 点击点位查看完整分析报告</span>
+        <span class="tip">· 实线 = 当时股价 · 虚线 = AI 目标价 · 悬停查看预计收益率 · 点击点位在新标签页打开完整分析报告</span>
       </div>
     </div>
   </el-card>
@@ -168,11 +168,15 @@ const renderChart = () => {
   if (!chartRef.value) return
   if (!chartInstance) {
     chartInstance = echarts.init(chartRef.value)
-    // 点击点位 → 跳转到对应的分析报告详情页
+    // 点击点位 → 在新标签页打开对应的分析报告详情页
     chartInstance.on('click', (params: any) => {
       const p: AnalysisPoint | undefined = params?.data?.pointMeta
       if (p?.analysis_id) {
-        router.push({ name: 'ReportDetail', params: { id: p.analysis_id } })
+        const href = router.resolve({
+          name: 'ReportDetail',
+          params: { id: p.analysis_id },
+        }).href
+        window.open(href, '_blank', 'noopener')
       }
     })
   }
