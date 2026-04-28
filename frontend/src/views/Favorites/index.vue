@@ -118,7 +118,13 @@
         @selection-change="handleSelectionChange"
       >
         <el-table-column type="selection" width="55" />
-        <el-table-column prop="stock_code" label="股票代码" width="120">
+        <el-table-column
+          prop="stock_code"
+          label="股票代码"
+          width="120"
+          sortable
+          :sort-method="(a: any, b: any) => sortStr(a.stock_code, b.stock_code)"
+        >
           <template #default="{ row }">
             <el-link type="primary" @click="viewStockDetail(row)">
               {{ row.stock_code }}
@@ -126,7 +132,13 @@
           </template>
         </el-table-column>
 
-        <el-table-column prop="stock_name" label="股票名称" width="150">
+        <el-table-column
+          prop="stock_name"
+          label="股票名称"
+          width="150"
+          sortable
+          :sort-method="(a: any, b: any) => sortStr(a.stock_name, b.stock_name)"
+        >
           <template #default="{ row }">
             <el-link
               type="primary"
@@ -138,30 +150,60 @@
             </el-link>
           </template>
         </el-table-column>
-        <el-table-column prop="market" label="市场" width="80">
+        <el-table-column
+          prop="market"
+          label="市场"
+          width="80"
+          sortable
+          :sort-method="(a: any, b: any) => sortStr(a.market || 'A股', b.market || 'A股')"
+        >
           <template #default="{ row }">
             {{ row.market || 'A股' }}
           </template>
         </el-table-column>
-        <el-table-column prop="board" label="板块" width="100">
+        <el-table-column
+          prop="board"
+          label="板块"
+          width="100"
+          sortable
+          :sort-method="(a: any, b: any) => sortStr(a.board, b.board)"
+        >
           <template #default="{ row }">
             {{ row.board || '-' }}
           </template>
         </el-table-column>
-        <el-table-column prop="exchange" label="交易所" width="140">
+        <el-table-column
+          prop="exchange"
+          label="交易所"
+          width="140"
+          sortable
+          :sort-method="(a: any, b: any) => sortStr(a.exchange, b.exchange)"
+        >
           <template #default="{ row }">
             {{ row.exchange || '-' }}
           </template>
         </el-table-column>
 
-        <el-table-column prop="current_price" label="当前价格" width="100">
+        <el-table-column
+          prop="current_price"
+          label="当前价格"
+          width="100"
+          sortable
+          :sort-method="(a: any, b: any) => sortNum(a.current_price, b.current_price)"
+        >
           <template #default="{ row }">
             <span v-if="row.current_price !== null && row.current_price !== undefined">¥{{ formatPrice(row.current_price) }}</span>
             <span v-else>-</span>
           </template>
         </el-table-column>
 
-        <el-table-column prop="change_percent" label="涨跌幅" width="100">
+        <el-table-column
+          prop="change_percent"
+          label="涨跌幅"
+          width="100"
+          sortable
+          :sort-method="(a: any, b: any) => sortNum(a.change_percent, b.change_percent)"
+        >
           <template #default="{ row }">
             <span
               v-if="row.change_percent !== null && row.change_percent !== undefined"
@@ -173,7 +215,14 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="AI 目标价" width="110" align="right">
+        <el-table-column
+          prop="_ai_target_price"
+          label="AI 目标价"
+          width="110"
+          align="right"
+          sortable
+          :sort-method="(a: any, b: any) => sortNum(a._ai_target_price, b._ai_target_price)"
+        >
           <template #default="{ row }">
             <span v-if="row._ai_target_price !== null && row._ai_target_price !== undefined">
               {{ formatPrice(row._ai_target_price) }}
@@ -182,7 +231,14 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="预计收益率" width="110" align="right">
+        <el-table-column
+          prop="_ai_expected_return"
+          label="预计收益率"
+          width="110"
+          align="right"
+          sortable
+          :sort-method="(a: any, b: any) => sortNum(a._ai_expected_return, b._ai_expected_return)"
+        >
           <template #default="{ row }">
             <span
               v-if="row._ai_expected_return !== null && row._ai_expected_return !== undefined"
@@ -194,7 +250,13 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="最新分析时间" width="160">
+        <el-table-column
+          prop="_ai_analyzed_at"
+          label="最新分析时间"
+          width="160"
+          sortable
+          :sort-method="(a: any, b: any) => sortDate(a._ai_analyzed_at, b._ai_analyzed_at)"
+        >
           <template #default="{ row }">
             <span v-if="row._ai_analyzed_at">
               {{ formatAnalyzedAt(row._ai_analyzed_at) }}
@@ -227,7 +289,13 @@
           </template>
         </el-table-column>
 
-        <el-table-column prop="added_at" label="添加时间" width="120">
+        <el-table-column
+          prop="added_at"
+          label="添加时间"
+          width="120"
+          sortable
+          :sort-method="(a: any, b: any) => sortDate(a.added_at, b.added_at)"
+        >
           <template #default="{ row }">
             {{ formatDate(row.added_at) }}
           </template>
@@ -1471,6 +1539,39 @@ const aiActionType = (action: string | null): 'success' | 'danger' | 'info' => {
   if (action.includes('买') || /buy/i.test(action)) return 'success'
   if (action.includes('卖') || /sell/i.test(action)) return 'danger'
   return 'info'
+}
+
+// ---- 表格排序辅助函数 ----
+// 空值统一排到末尾（asc 升序时在底，desc 降序时靠 el-table 自动翻转也能保持在末尾的语义）
+// 只要比较器对 null/undefined 返回一个特殊值就行。这里采取：null 视为"无穷大"在升序中垫底。
+const sortNum = (a: any, b: any): number => {
+  const na = Number(a)
+  const nb = Number(b)
+  const aBad = !Number.isFinite(na)
+  const bBad = !Number.isFinite(nb)
+  if (aBad && bBad) return 0
+  if (aBad) return 1
+  if (bBad) return -1
+  return na - nb
+}
+const sortStr = (a: any, b: any): number => {
+  const sa = a == null ? '' : String(a)
+  const sb = b == null ? '' : String(b)
+  // 空值排后面
+  if (!sa && !sb) return 0
+  if (!sa) return 1
+  if (!sb) return -1
+  return sa.localeCompare(sb, 'zh-CN')
+}
+const sortDate = (a: any, b: any): number => {
+  const ta = a ? new Date(a).getTime() : NaN
+  const tb = b ? new Date(b).getTime() : NaN
+  const aBad = Number.isNaN(ta)
+  const bBad = Number.isNaN(tb)
+  if (aBad && bBad) return 0
+  if (aBad) return 1
+  if (bBad) return -1
+  return ta - tb
 }
 
 // 生命周期
