@@ -11,6 +11,18 @@
         </div>
         <div class="header-right">
           <el-select
+            v-model="rangeDays"
+            size="small"
+            style="width: 110px; margin-right: 8px"
+            @change="loadData"
+          >
+            <el-option label="近 1 月" :value="30" />
+            <el-option label="近 3 月" :value="90" />
+            <el-option label="近半年" :value="180" />
+            <el-option label="近 1 年" :value="365" />
+            <el-option label="全部" :value="0" />
+          </el-select>
+          <el-select
             v-model="selectedCodes"
             multiple
             filterable
@@ -85,6 +97,8 @@ const props = defineProps<Props>()
 const loading = ref(false)
 const series = ref<SeriesItem[]>([])
 const selectedCodes = ref<string[]>([])
+// 时间窗（天数）；0 = 全部。默认近半年
+const rangeDays = ref<number>(180)
 const chartRef = ref<HTMLElement | null>(null)
 let chartInstance: echarts.ECharts | null = null
 
@@ -110,7 +124,12 @@ const actionColor = (action: string | null): string => {
 const loadData = async () => {
   loading.value = true
   try {
-    const res: any = await favoritesApi.getAnalysisHistory({ limit: 50 })
+    // rangeDays=0 表示"全部"，不传 days；limit 给一个大上限兜底
+    const params: { limit: number; days?: number } = { limit: 2000 }
+    if (rangeDays.value && rangeDays.value > 0) {
+      params.days = rangeDays.value
+    }
+    const res: any = await favoritesApi.getAnalysisHistory(params)
     const data = res?.data ?? res
     series.value = data?.series ?? []
     // 默认只选"最近一次分析"最新的那一只股票，避免多条曲线同屏挤在一起

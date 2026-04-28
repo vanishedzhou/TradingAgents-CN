@@ -408,7 +408,13 @@ async def get_favorites_analysis_history(
         description="逗号分隔的股票代码过滤，空则返回所有自选股"
     ),
     market: Optional[str] = Query(None, description="市场过滤: A股/美股/港股"),
-    limit: int = Query(100, ge=1, le=500, description="每只股票最多返回多少个分析点"),
+    limit: int = Query(2000, ge=1, le=5000, description="每只股票最多返回多少个分析点"),
+    days: Optional[int] = Query(
+        None,
+        ge=1,
+        le=3650,
+        description="只返回近 N 天的分析（按 created_at 向前推）；不传 = 不限"
+    ),
     current_user: dict = Depends(get_current_user),
 ):
     """
@@ -426,12 +432,14 @@ async def get_favorites_analysis_history(
             symbols=symbol_list,
             market=market,
             limit=limit,
+            days=days,
         )
 
         total_points = sum(len(s.get("points", [])) for s in series)
         logger.info(
             f"📈 分析历史查询 user={current_user['id']} "
-            f"symbols={symbol_list} market={market} → {len(series)} 只股票, {total_points} 个点"
+            f"symbols={symbol_list} market={market} days={days} limit={limit} "
+            f"→ {len(series)} 只股票, {total_points} 个点"
         )
         return ok({
             "series": series,

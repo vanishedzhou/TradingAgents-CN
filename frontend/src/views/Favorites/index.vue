@@ -162,6 +162,45 @@
           </template>
         </el-table-column>
 
+        <el-table-column label="AI 目标价" width="110" align="right">
+          <template #default="{ row }">
+            <span v-if="row._ai_target_price !== null && row._ai_target_price !== undefined">
+              {{ formatPrice(row._ai_target_price) }}
+            </span>
+            <span v-else style="color: var(--el-text-color-placeholder)">-</span>
+          </template>
+        </el-table-column>
+
+        <el-table-column label="预计收益率" width="110" align="right">
+          <template #default="{ row }">
+            <span
+              v-if="row._ai_expected_return !== null && row._ai_expected_return !== undefined"
+              :class="getChangeClass(row._ai_expected_return)"
+            >
+              {{ formatPercent(row._ai_expected_return) }}
+            </span>
+            <span v-else style="color: var(--el-text-color-placeholder)">-</span>
+          </template>
+        </el-table-column>
+
+        <el-table-column label="最新分析时间" width="160">
+          <template #default="{ row }">
+            <span v-if="row._ai_analyzed_at">
+              {{ formatAnalyzedAt(row._ai_analyzed_at) }}
+              <el-tag
+                v-if="row._ai_action"
+                size="small"
+                :type="aiActionType(row._ai_action)"
+                effect="plain"
+                style="margin-left: 4px"
+              >
+                {{ row._ai_action }}
+              </el-tag>
+            </span>
+            <span v-else style="color: var(--el-text-color-placeholder)">-</span>
+          </template>
+        </el-table-column>
+
         <el-table-column prop="tags" label="标签" width="150">
           <template #default="{ row }">
             <el-tag
@@ -786,11 +825,49 @@ const loadFavorites = async () => {
   try {
     const res = await favoritesApi.list()
     favorites.value = ((res as any)?.data || []) as FavoriteItem[]
+    // 顺手拉"每只股票最新一次 AI 分析"富集到行上（不阻塞主流程）
+    loadLatestAnalysisForFavorites()
   } catch (error: any) {
     console.error('加载自选股失败:', error)
     ElMessage.error(error.message || '加载自选股失败')
   } finally {
     loading.value = false
+  }
+}
+
+// 给表格行挂 _ai_* 字段：目标价 / 预计收益率 / 最新分析时间 / action
+// 失败静默，不影响主列表展示
+const loadLatestAnalysisForFavorites = async () => {
+  if (favorites.value.length === 0) return
+  try {
+    // 只拿每只股票的"最近一条"，但因为是按股票分组 + 每股限 N 条的接口，
+    // 我们直接 limit=1 就能拿到每只的最新点；days 给 180 覆盖半年也够
+    const res: any = await favoritesApi.getAnalysisHistory({ limit: 1, days: 180 })
+    const data = res?.data ?? res
+    const seriesList: Array<{ stock_code: string; points: any[] }> = data?.series ?? []
+    const latestByCode: Record<string, any> = {}
+    for (const s of seriesList) {
+      const pts = s?.points || []
+      if (pts.length > 0) {
+        // points 是时间正序，最后一个就是最新（limit=1 时只有一个）
+        latestByCode[s.stock_code] = pts[pts.length - 1]
+      }
+    }
+    // 富集
+    favorites.value = favorites.value.map((f: any) => {
+      const code = f.stock_code || f.symbol
+      const p = code ? latestByCode[code] : null
+      return {
+        ...f,
+        _ai_target_price: p?.target_price ?? null,
+        _ai_expected_return: p?.expected_return ?? null,
+        _ai_analyzed_at: p?.analyzed_at ?? null,
+        _ai_action: p?.action ?? null,
+      }
+    }) as any
+  } catch (e: any) {
+    // 静默失败，列里保持 "-"
+    console.warn('加载最新 AI 分析失败:', e?.message || e)
   }
 }
 
@@ -1350,6 +1427,27 @@ const formatPercent = (value: any): string => {
 
 const formatDate = (dateStr: string) => {
   return new Date(dateStr).toLocaleDateString('zh-CN')
+}
+
+// AI 分析时间（含时分，给"最新分析时间"列用）
+const formatAnalyzedAt = (iso: string) => {
+  if (!iso) return '-'
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return '-'
+  // e.g. 04-27 17:09
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  const hh = String(d.getHours()).padStart(2, '0')
+  const mm = String(d.getMinutes()).padStart(2, '0')
+  return `${m}-${day} ${hh}:${mm}`
+}
+
+// action → el-tag type
+const aiActionType = (action: string | null): 'success' | 'danger' | 'info' => {
+  if (!action) return 'info'
+  if (action.includes('买') || /buy/i.test(action)) return 'success'
+  if (action.includes('卖') || /sell/i.test(action)) return 'danger'
+  return 'info'
 }
 
 // 生命周期

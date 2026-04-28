@@ -86,6 +86,8 @@ export const favoritesApi = {
     symbols?: string[]
     market?: string
     limit?: number
+    /** 只返回近 N 天；不传 = 不限（取全部，受 limit 约束） */
+    days?: number
   }) =>
     ApiClient.get<{
       series: Array<{
@@ -109,6 +111,7 @@ export const favoritesApi = {
         symbols: params?.symbols?.length ? params.symbols.join(',') : undefined,
         market: params?.market,
         limit: params?.limit,
+        days: params?.days,
       },
     })
 }

@@ -471,6 +471,7 @@ class FavoritesService:
         symbols: Optional[List[str]] = None,
         market: Optional[str] = None,
         limit: int = 100,
+        days: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         """
         获取用户自选股的 AI 分析历史（按股票分组的时间序列）。
@@ -480,6 +481,7 @@ class FavoritesService:
             symbols: 可选，只返回这些股票代码的历史；None 时取 user_favorites 全部
             market:  可选市场过滤（"A股" / "美股" / "港股"）
             limit:   每只股票最多返回多少条（按时间倒序）
+            days:    可选，只返回近 N 天（按 created_at，UTC now 向前推）；None 或 <=0 表示不限
 
         返回
             [
@@ -536,11 +538,21 @@ class FavoritesService:
         #    所以按 stock_symbol + (可选) market_type 过滤即可。
         #    同一股票在数据库里可能有多种代码写法（例如 1810.HK / 01810），这里
         #    用宽松 $in 匹配用户自选股里记录的那份，不强制归一。
+        # 时间窗过滤：days>0 时只取最近 N 天，避免"全部"返回时爆体积
+        min_created_at = None
+        if days and days > 0:
+            from datetime import timezone as _tz, timedelta as _td
+            min_created_at = datetime.now(_tz.utc) - _td(days=days)
+
         series_result: List[Dict[str, Any]] = []
         for code, meta in fav_map.items():
             query: Dict[str, Any] = {"stock_symbol": code}
             if meta.get("market"):
                 query["market_type"] = meta["market"]
+            if min_created_at is not None:
+                # MongoDB 里 created_at 是 naive UTC datetime，pymongo 在比较时会
+                # 把带时区的 datetime 归一到 naive UTC，这里直接传带时区也能工作
+                query["created_at"] = {"$gte": min_created_at.replace(tzinfo=None)}
 
             cursor = db.analysis_reports.find(query).sort("created_at", -1).limit(limit)
             docs = await cursor.to_list(length=limit)
@@ -571,6 +583,12 @@ class FavoritesService:
 
                 created_at = d.get("created_at")
                 if isinstance(created_at, datetime):
+                    # MongoDB 存的是 UTC naive datetime，直接 isoformat 会丢时区后缀，
+                    # 浏览器 new Date() 会误当成本地时间解析，导致图表时间戳差 8 小时。
+                    # 这里显式标成 UTC 后再 isoformat，输出 "...+00:00"。
+                    if created_at.tzinfo is None:
+                        from datetime import timezone as _tz
+                        created_at = created_at.replace(tzinfo=_tz.utc)
                     analyzed_at = created_at.isoformat()
                 else:
                     analyzed_at = str(created_at) if created_at else None
