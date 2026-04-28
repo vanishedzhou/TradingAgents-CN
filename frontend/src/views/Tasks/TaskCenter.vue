@@ -85,7 +85,6 @@
 
       <el-table :data="filteredList" v-loading="loading" style="width: 100%" @selection-change="onSelectionChange">
         <el-table-column type="selection" width="50" />
-        <el-table-column prop="task_id" label="任务ID" width="220" />
         <el-table-column prop="stock_code" label="股票代码" width="120" />
         <el-table-column prop="stock_name" label="股票名称" width="150" />
         <el-table-column label="状态" width="110">
@@ -190,6 +189,13 @@
             {{ formatTime(row.end_time) }}
           </template>
         </el-table-column>
+
+        <el-table-column
+          prop="task_id"
+          label="任务ID"
+          width="220"
+          show-overflow-tooltip
+        />
 
         <el-table-column label="操作" width="350" fixed="right">
           <template #default="{ row }">
