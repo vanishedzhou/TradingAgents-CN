@@ -126,6 +126,20 @@
 
         <el-table-column
           v-if="showCompletedCols"
+          label="当时价"
+          width="100"
+          align="right"
+        >
+          <template #default="{ row }">
+            <span v-if="row.current_price !== null && row.current_price !== undefined">
+              {{ formatPrice(row.current_price) }}
+            </span>
+            <span v-else class="muted">-</span>
+          </template>
+        </el-table-column>
+
+        <el-table-column
+          v-if="showCompletedCols"
           label="目标价"
           width="100"
           align="right"
