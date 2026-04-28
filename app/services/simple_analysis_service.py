@@ -2257,6 +2257,23 @@ class SimpleAnalysisService:
                         mem_task["message"] = mongo_task.get("message", mem_task.get("message", ""))
                         mem_task["current_step"] = mongo_task.get("current_step", mem_task.get("current_step", ""))
                         logger.debug(f"🔄 [Tasks] 更新任务进度: {task_id}, progress={mem_task['progress']}%")
+
+                    # 🔧 AI 决策字段只存在于 MongoDB 分支产出里，
+                    # memory_manager 的 to_dict 不生成这些字段。
+                    # 所以不管是什么状态，只要 MongoDB 有值就把它补到 mem_task 上，
+                    # 否则"已完成"tab 里来自内存的任务会全部显示 "-"
+                    for k in (
+                        "action", "target_price", "current_price",
+                        "confidence", "risk_score", "research_depth",
+                        # symbol 也在 MongoDB 分支补过（优先读 stock_code），
+                        # 老的 memory 对象可能 symbol=None
+                        "symbol", "stock_code", "stock_symbol", "stock_name",
+                        # 结束时间：内存完成后可能也没写，MongoDB 里更可靠
+                        "end_time",
+                    ):
+                        v = mongo_task.get(k)
+                        if v is not None and mem_task.get(k) in (None, ""):
+                            mem_task[k] = v
                 else:
                     # 内存中没有，直接添加 MongoDB 中的任务
                     task_dict[task_id] = task
