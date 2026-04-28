@@ -2118,7 +2118,20 @@ class SimpleAnalysisService:
 
                 logger.info(f"📋 [Tasks] MongoDB 查询条件: {query}")
                 # 读取更多数据用于合并
-                cursor = db.analysis_tasks.find(query).sort("created_at", -1).limit(limit * 2)
+                # 列表接口只要元数据（状态/进度/股票代码），result 字段每条 1-2 MB，
+                # 20 条就是 20-40 MB 的响应体，会让任务中心打开非常慢。
+                # 这里用 projection 把 result/reports 排除掉。
+                projection = {
+                    "result": 0,
+                    "reports": 0,
+                    "raw_result": 0,
+                }
+                cursor = (
+                    db.analysis_tasks
+                    .find(query, projection)
+                    .sort("created_at", -1)
+                    .limit(limit * 2)
+                )
                 async for doc in cursor:
                     count += 1
                     # 兼容 user_id 或 user 字段
@@ -2141,8 +2154,10 @@ class SimpleAnalysisService:
                         "parameters": doc.get("parameters", {}),
                         "execution_time": doc.get("execution_time"),
                         "tokens_used": doc.get("tokens_used"),
-                        # 为兼容前端，这里沿用 memory_manager 的字段名
-                        "result_data": doc.get("result"),
+                        # 为兼容前端，字段名沿用 memory_manager 的 result_data，
+                        # 但列表接口不返回完整结果体（太大），前端按需调
+                        # GET /api/analysis/tasks/{task_id}/result 拿
+                        "result_data": None,
                     }
                     # 时间格式转为 ISO 字符串（添加时区信息）
                     for k in ("start_time", "end_time"):
