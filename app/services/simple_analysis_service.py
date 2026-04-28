@@ -1713,6 +1713,8 @@ class SimpleAnalysisService:
 
                     # 从 reports.market_report 正则抽"当时股价"，顺便存进 decision
                     # 这样任务中心列表页不用读整份 reports 就能展示预计收益率
+                    # 注意：parser 提取的价格**优先于** LLM 原始返回的 current_price，
+                    # 因为 LLM 可能会把"平均收盘价"等数字误填到 current_price 字段
                     current_price_extracted = None
                     try:
                         from app.utils.report_parser import extract_current_price_from_reports
@@ -1726,7 +1728,7 @@ class SimpleAnalysisService:
                         'confidence': decision.get('confidence', 0.5),
                         'risk_score': decision.get('risk_score', 0.3),
                         'target_price': target_price,
-                        'current_price': decision.get('current_price') or current_price_extracted,
+                        'current_price': current_price_extracted or decision.get('current_price'),
                         'reasoning': decision.get('reasoning', '暂无分析推理')
                     }
 

@@ -20,7 +20,8 @@ from typing import Optional, Dict, Any, Iterable, List
 _PRICE_PREFIX = r'(?:HK|US)?[\$￥¥]?'
 
 
-def extract_price_from_text(text: str, pattern_keywords: Iterable[str]) -> Optional[float]:
+def extract_price_from_text(text: str, pattern_keywords: Iterable[str],
+                            negative_lookbehind: Optional[List[str]] = None) -> Optional[float]:
     """从文本中提取第一个匹配关键字后出现的价格数值。
 
     支持:
@@ -29,6 +30,9 @@ def extract_price_from_text(text: str, pattern_keywords: Iterable[str]) -> Optio
       target_price: $185
       目标价 HK$185.5
       当前价格 ￥12.34
+
+    negative_lookbehind: 如果关键字前面紧邻这些前缀词，则跳过该匹配。
+      例如 ['平均', '年均', '历史'] 可避免把 "平均收盘价" 误当作 "收盘价"。
     """
     if not text or not isinstance(text, str):
         return None
@@ -38,8 +42,13 @@ def extract_price_from_text(text: str, pattern_keywords: Iterable[str]) -> Optio
             rf'{kw}\s*{_PRICE_PREFIX}\s*([\d]+\.?\d*)',
         ]
         for pat in patterns:
-            m = re.search(pat, text, re.IGNORECASE)
-            if m:
+            for m in re.finditer(pat, text, re.IGNORECASE):
+                # 检查是否应被排除（关键字前面紧邻 negative_lookbehind 中的词）
+                if negative_lookbehind:
+                    start = max(0, m.start() - 6)
+                    prefix = text[start:m.start()]
+                    if any(neg in prefix for neg in negative_lookbehind):
+                        continue
                 try:
                     return float(m.group(1))
                 except (ValueError, TypeError):
@@ -53,8 +62,14 @@ _CURRENT_PRICE_REPORT_KEYS: List[str] = [
     'final_trade_decision', 'news_report',
 ]
 _CURRENT_PRICE_KEYWORDS: List[str] = [
-    '当前价格', '现价', '收盘价', '最新价',
-    'current price', 'close price', '当前股价', '最新股价', '目前价格',
+    '当前价格', '现价', '当前股价', '最新股价', '目前价格',
+    '最新价', 'current price', 'close price',
+    '收盘价',  # 放最后，因为容易误匹配"平均收盘价"
+]
+
+# "收盘价" 等宽泛关键字前面如果紧邻以下词，说明不是"当前收盘价"，应跳过
+_CURRENT_PRICE_NEGATIVE_LOOKBEHIND: List[str] = [
+    '平均', '年均', '历史', '均值', '年平均', '月均',
 ]
 
 
@@ -66,7 +81,10 @@ def extract_current_price_from_reports(reports: Optional[Dict[str, Any]]) -> Opt
         content = reports.get(key, '')
         if not content:
             continue
-        price = extract_price_from_text(content, _CURRENT_PRICE_KEYWORDS)
+        price = extract_price_from_text(
+            content, _CURRENT_PRICE_KEYWORDS,
+            negative_lookbehind=_CURRENT_PRICE_NEGATIVE_LOOKBEHIND,
+        )
         if price and price > 0:
             return price
     return None
