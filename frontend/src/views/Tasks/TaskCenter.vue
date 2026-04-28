@@ -366,7 +366,9 @@ const openResult = async (row:any) => {
 const openReport = (row:any) => {
   const id = row?.task_id || row?.analysis_id || row?.id
   if (!id) return ElMessage.warning('未找到报告ID')
-  router.push({ name: 'ReportDetail', params: { id } })
+  // 新标签页打开，保留当前任务中心列表不跳走
+  const href = router.resolve({ name: 'ReportDetail', params: { id } }).href
+  window.open(href, '_blank', 'noopener')
 }
 
 const retryTask = (row:any) => { ElMessage.info('重试功能待实现') }
