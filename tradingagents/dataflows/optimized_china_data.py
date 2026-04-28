@@ -1486,8 +1486,18 @@ class OptimizedChinaDataProvider:
                         # 提取基本每股收益的所有期数数据
                         eps_row = main_indicators[main_indicators['指标'] == '基本每股收益']
                         if not eps_row.empty:
-                            # 获取所有数值列（排除'指标'列）
-                            value_cols = [col for col in eps_row.columns if col != '指标']
+                            # 获取报告期列 —— 必须是 YYYYMMDD 格式的 8 位数字
+                            # 注意：AKShare 的 stock_financial_abstract 返回的列里
+                            # 除了报告期还有一个 '选项' 列（值是'常用指标'/'每股指标'等），
+                            # 如果不过滤掉，它会被当成一个假的"最新报告期"，
+                            # 导致 _calculate_ttm_metric 拿到脏数据直接返回 None，
+                            # PE 计算降级到"单期 EPS"路径，结果把季度 EPS 当年度 EPS
+                            # 用，PE 会虚高 2-4 倍（典型案例：紫金矿业 14 倍 → 44 倍）
+                            import re as _re
+                            value_cols = [
+                                col for col in eps_row.columns
+                                if col != '指标' and _re.fullmatch(r'\d{8}', str(col))
+                            ]
 
                             # 构建 DataFrame 用于 TTM 计算
                             import pandas as pd
@@ -1522,7 +1532,12 @@ class OptimizedChinaDataProvider:
 
                 if eps_for_pe and eps_for_pe > 0:
                     pe_val = price_value / eps_for_pe
-                    metrics["pe"] = f"{pe_val:.1f}倍"
+                    # 把数据口径标注进输出（TTM / 单期），防止 LLM 把单季 PE 当年度 PE
+                    # 误判成估值过高。单季数据本身会让 PE 虚高 2-4 倍。
+                    if pe_type == "TTM":
+                        metrics["pe"] = f"{pe_val:.1f}倍 (TTM)"
+                    else:
+                        metrics["pe"] = f"{pe_val:.1f}倍 (⚠️ 基于单季EPS，可能偏高，仅供参考)"
                     logger.info(f"✅ [AKShare-PE计算-第2层成功] PE({pe_type}): 股价{price_value} / EPS{eps_for_pe:.4f} = {metrics['pe']}")
                 elif eps_for_pe and eps_for_pe <= 0:
                     metrics["pe"] = "N/A（亏损）"
@@ -1629,7 +1644,12 @@ class OptimizedChinaDataProvider:
                 if '营业收入' in main_indicators['指标'].values:
                     revenue_row = main_indicators[main_indicators['指标'] == '营业收入']
                     if not revenue_row.empty:
-                        value_cols = [col for col in revenue_row.columns if col != '指标']
+                        # 同 EPS：过滤出 YYYYMMDD 的报告期列，排除 '选项' 之类的元数据列
+                        import re as _re
+                        value_cols = [
+                            col for col in revenue_row.columns
+                            if col != '指标' and _re.fullmatch(r'\d{8}', str(col))
+                        ]
 
                         import pandas as pd
                         revenue_data = []
