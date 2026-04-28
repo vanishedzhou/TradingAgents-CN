@@ -103,6 +103,80 @@
             {{ formatTime(row.start_time || row.created_at) }}
           </template>
         </el-table-column>
+
+        <!-- 已完成专属：AI 决策摘要 + 结束时间 + 分析等级 -->
+        <el-table-column
+          v-if="showCompletedCols"
+          label="AI 建议"
+          width="100"
+          align="center"
+        >
+          <template #default="{ row }">
+            <el-tag
+              v-if="row.action"
+              size="small"
+              :type="aiActionType(row.action)"
+              effect="plain"
+            >
+              {{ row.action }}
+            </el-tag>
+            <span v-else class="muted">-</span>
+          </template>
+        </el-table-column>
+
+        <el-table-column
+          v-if="showCompletedCols"
+          label="目标价"
+          width="100"
+          align="right"
+        >
+          <template #default="{ row }">
+            <span v-if="row.target_price !== null && row.target_price !== undefined">
+              {{ formatPrice(row.target_price) }}
+            </span>
+            <span v-else class="muted">-</span>
+          </template>
+        </el-table-column>
+
+        <el-table-column
+          v-if="showCompletedCols"
+          label="预计收益率"
+          width="110"
+          align="right"
+        >
+          <template #default="{ row }">
+            <span
+              v-if="expectedReturn(row) !== null"
+              :class="returnClass(expectedReturn(row))"
+            >
+              {{ formatPercent(expectedReturn(row)) }}
+            </span>
+            <span v-else class="muted">-</span>
+          </template>
+        </el-table-column>
+
+        <el-table-column
+          v-if="showCompletedCols"
+          label="分析等级"
+          width="100"
+          align="center"
+        >
+          <template #default="{ row }">
+            <span v-if="row.research_depth">{{ row.research_depth }}</span>
+            <span v-else class="muted">-</span>
+          </template>
+        </el-table-column>
+
+        <el-table-column
+          v-if="showCompletedCols"
+          label="结束时间"
+          width="180"
+        >
+          <template #default="{ row }">
+            {{ formatTime(row.end_time) }}
+          </template>
+        </el-table-column>
+
         <el-table-column label="操作" width="350" fixed="right">
           <template #default="{ row }">
             <el-button v-if="row.status==='completed'" type="text" size="small" @click="openResult(row)">查看结果</el-button>
@@ -529,6 +603,47 @@ import { formatDateTime } from '@/utils/datetime'
 
 const getStatusText = (status:string) => ({ pending:'等待中', processing:'处理中', completed:'已完成', failed:'失败', cancelled:'已取消' } as any)[status] || status
 const formatTime = (t:string) => t ? formatDateTime(t) : '-'
+
+// ---- AI 决策摘要列辅助函数（"已完成" / "全部" tab 展示）----
+const showCompletedCols = computed(() =>
+  activeTab.value === 'completed' || activeTab.value === 'all'
+)
+
+const aiActionType = (action: string | null | undefined): 'success' | 'danger' | 'info' => {
+  if (!action) return 'info'
+  if (action.includes('买') || /buy/i.test(action)) return 'success'
+  if (action.includes('卖') || /sell/i.test(action)) return 'danger'
+  return 'info'
+}
+
+const formatPrice = (v: any): string => {
+  const n = Number(v)
+  return Number.isFinite(n) ? n.toFixed(2) : '-'
+}
+
+const formatPercent = (v: any): string => {
+  const n = Number(v)
+  if (!Number.isFinite(n)) return '-'
+  const sign = n > 0 ? '+' : ''
+  return `${sign}${n.toFixed(2)}%`
+}
+
+// 预计收益率 = (target - current) / current * 100
+// current 优先用 row.current_price（后端 decision 带的），
+// 兜底用 row.last_price / row.close 等（一般没有，返回 null）
+const expectedReturn = (row: any): number | null => {
+  const tgt = Number(row?.target_price)
+  const cur = Number(row?.current_price ?? row?.last_price ?? row?.close)
+  if (!Number.isFinite(tgt) || !Number.isFinite(cur) || cur <= 0) return null
+  return Math.round(((tgt - cur) / cur) * 10000) / 100
+}
+
+const returnClass = (r: number | null) => {
+  if (r === null || r === undefined) return ''
+  if (r > 0) return 'text-red'
+  if (r < 0) return 'text-green'
+  return ''
+}
 </script>
 
 <style scoped lang="scss">
@@ -540,5 +655,10 @@ const formatTime = (t:string) => t ? formatDateTime(t) : '-'
   .list-header { display:flex; justify-content: space-between; align-items: center; margin-bottom: 12px; gap:8px; }
   .pagination-wrapper { display:flex; justify-content:center; margin-top: 16px; }
 }
+
+/* 列表里"预计收益率"列的涨跌色（跟自选股列表一致） */
+.text-red { color: #F56C6C; font-weight: 600; }
+.text-green { color: #67C23A; font-weight: 600; }
+.muted { color: var(--el-text-color-placeholder); }
 </style>
 

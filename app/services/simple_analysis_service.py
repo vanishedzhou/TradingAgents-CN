@@ -771,6 +771,13 @@ class SimpleAnalysisService:
 
             try:
                 db = get_mongo_db()
+                # 把请求参数一并写入，方便任务中心展示"分析等级"等
+                req_params = None
+                try:
+                    req_params = request.parameters.model_dump() if request.parameters else None
+                except Exception:
+                    req_params = None
+
                 result = await db.analysis_tasks.update_one(
                     {"task_id": task_id},
                     {"$setOnInsert": {
@@ -782,6 +789,7 @@ class SimpleAnalysisService:
                         "status": "pending",
                         "progress": 0,
                         "created_at": datetime.utcnow(),
+                        "parameters": req_params,
                     }},
                     upsert=True
                 )
@@ -1703,11 +1711,22 @@ class SimpleAnalysisService:
                     action = decision.get('action', '持有')
                     chinese_action = action_translation.get(action, action)
 
+                    # 从 reports.market_report 正则抽"当时股价"，顺便存进 decision
+                    # 这样任务中心列表页不用读整份 reports 就能展示预计收益率
+                    current_price_extracted = None
+                    try:
+                        from app.utils.report_parser import extract_current_price_from_reports
+                        if isinstance(reports, dict):
+                            current_price_extracted = extract_current_price_from_reports(reports)
+                    except Exception as _e:
+                        current_price_extracted = None
+
                     formatted_decision = {
                         'action': chinese_action,
                         'confidence': decision.get('confidence', 0.5),
                         'risk_score': decision.get('risk_score', 0.3),
                         'target_price': target_price,
+                        'current_price': decision.get('current_price') or current_price_extracted,
                         'reasoning': decision.get('reasoning', '暂无分析推理')
                     }
 
@@ -1719,6 +1738,7 @@ class SimpleAnalysisService:
                         'confidence': 0.5,
                         'risk_score': 0.3,
                         'target_price': None,
+                        'current_price': None,
                         'reasoning': '暂无分析推理'
                     }
                     logger.warning(f"⚠️ Decision不是字典类型: {type(decision)}")
@@ -1729,6 +1749,7 @@ class SimpleAnalysisService:
                     'confidence': 0.5,
                     'risk_score': 0.3,
                     'target_price': None,
+                    'current_price': None,
                     'reasoning': '暂无分析推理'
                 }
 
@@ -2118,11 +2139,13 @@ class SimpleAnalysisService:
 
                 logger.info(f"📋 [Tasks] MongoDB 查询条件: {query}")
                 # 读取更多数据用于合并
-                # 列表接口只要元数据（状态/进度/股票代码），result 字段每条 1-2 MB，
-                # 20 条就是 20-40 MB 的响应体，会让任务中心打开非常慢。
-                # 这里用 projection 把 result/reports 排除掉。
+                # 列表接口只要元数据（状态/进度/股票代码 + AI 决策摘要），
+                # reports 原文每条 500KB-1MB，是真正的体积大头，必须剥离。
+                # result.decision 很小（~1.4 KB），保留给前端展示目标价/行动建议。
                 projection = {
-                    "result": 0,
+                    "result.reports": 0,
+                    "result.detailed_analysis": 0,
+                    "result.raw_result": 0,
                     "reports": 0,
                     "raw_result": 0,
                 }
@@ -2138,6 +2161,24 @@ class SimpleAnalysisService:
                     user_field_val = doc.get("user_id", doc.get("user"))
                     # 🔧 兼容多种股票代码字段名：symbol, stock_code, stock_symbol
                     stock_code_value = doc.get("symbol") or doc.get("stock_code") or doc.get("stock_symbol")
+
+                    # 从 result.decision 里抽核心字段展示给列表页
+                    # （reports 已被 projection 排除，所以不能再走文本提取当时价）
+                    result_stub = doc.get("result") or {}
+                    decision = result_stub.get("decision") or {}
+
+                    # research_depth：优先 parameters，其次 result.parameters，
+                    # 都没有就 None（前端显示 '-'）
+                    params = doc.get("parameters") or {}
+                    research_depth = (
+                        params.get("research_depth")
+                        if isinstance(params, dict) else None
+                    )
+                    if not research_depth:
+                        rp = result_stub.get("parameters") or {}
+                        if isinstance(rp, dict):
+                            research_depth = rp.get("research_depth")
+
                     item = {
                         "task_id": doc.get("task_id"),
                         "user_id": str(user_field_val) if user_field_val is not None else None,
@@ -2158,6 +2199,13 @@ class SimpleAnalysisService:
                         # 但列表接口不返回完整结果体（太大），前端按需调
                         # GET /api/analysis/tasks/{task_id}/result 拿
                         "result_data": None,
+                        # --- AI 决策摘要（用于任务中心列表展示，全部小字段）---
+                        "research_depth": research_depth,
+                        "action": decision.get("action"),
+                        "target_price": decision.get("target_price"),
+                        "confidence": decision.get("confidence"),
+                        "risk_score": decision.get("risk_score"),
+                        "current_price": decision.get("current_price"),
                     }
                     # 时间格式转为带时区的 ISO 字符串
                     # MongoDB 里 started_at / completed_at 是 UTC naive datetime（
