@@ -570,8 +570,7 @@ async def lifespan(app: FastAPI):
             logger.info(f"📰 新闻数据同步已配置（仅自选股）: {settings.NEWS_SYNC_CRON}")
 
         # ==================== 自选股定时分析（5 级全面） ====================
-        # V1: 固定全局 4 个时间窗口，只在工作日（day_of_week=1-5）触发。
-        # 遍历 user_favorites，按市场分发到各自的时段。
+        # 每周六 22:00 统一执行一次，覆盖所有市场。
         from app.worker.favorites_analysis_scheduler import (
             run_favorites_analysis_a_hk_morning,
             run_favorites_analysis_us_morning,
@@ -579,17 +578,17 @@ async def lifespan(app: FastAPI):
 
         scheduler.add_job(
             run_favorites_analysis_a_hk_morning,
-            CronTrigger(day_of_week='mon-fri', hour=8, minute=0, timezone=settings.TIMEZONE),
-            id="favorites_analysis_a_hk_morning",
-            name="自选股定时分析（A股/港股 · 早8:00）",
+            CronTrigger(day_of_week='sun', hour=22, minute=0, timezone=settings.TIMEZONE),
+            id="favorites_analysis_a_hk",
+            name="自选股定时分析（A股/港股 · 周日22:00）",
         )
         scheduler.add_job(
             run_favorites_analysis_us_morning,
-            CronTrigger(day_of_week='mon-fri', hour=8, minute=0, timezone=settings.TIMEZONE),
-            id="favorites_analysis_us_morning",
-            name="自选股定时分析（美股 · 早8:00）",
+            CronTrigger(day_of_week='sun', hour=22, minute=0, timezone=settings.TIMEZONE),
+            id="favorites_analysis_us",
+            name="自选股定时分析（美股 · 周日22:00）",
         )
-        logger.info("📊 自选股定时分析已配置: A股港股/美股 统一早8:00 (工作日)")
+        logger.info("📊 自选股定时分析已配置: A股港股/美股 每周日22:00")
 
         scheduler.start()
 
