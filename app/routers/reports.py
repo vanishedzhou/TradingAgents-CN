@@ -116,6 +116,261 @@ class ReportListResponse(BaseModel):
     page: int
     page_size: int
 
+
+@router.get("/latest-per-stock", response_model=Dict[str, Any])
+async def get_latest_reports_per_stock(
+    page: int = Query(1, ge=1, description="页码"),
+    page_size: int = Query(20, ge=1, le=100, description="每页数量"),
+    search_keyword: Optional[str] = Query(None, description="搜索关键词"),
+    market_filter: Optional[str] = Query(None, description="市场筛选（A股/港股/美股）"),
+    user: dict = Depends(get_current_user)
+):
+    """获取每支股票的最新分析报告（去重，每个 stock_symbol 只保留最新一条）"""
+    try:
+        db = get_mongo_db()
+
+        # MongoDB aggregation pipeline: 每个 stock_symbol 取 created_at 最新的一条
+        pipeline: List[Dict[str, Any]] = []
+
+        # 基础匹配条件
+        match_stage: Dict[str, Any] = {"stock_symbol": {"$exists": True, "$ne": ""}}
+
+        if search_keyword:
+            match_stage["$or"] = [
+                {"stock_symbol": {"$regex": search_keyword, "$options": "i"}},
+                {"stock_name": {"$regex": search_keyword, "$options": "i"}},
+                {"analysis_id": {"$regex": search_keyword, "$options": "i"}},
+            ]
+        if market_filter:
+            match_stage["market_type"] = market_filter
+
+        pipeline.append({"$match": match_stage})
+
+        # 按时间倒序，然后 group 每个 stock_symbol 取第一条（即最新）
+        pipeline.append({"$sort": {"created_at": -1}})
+        pipeline.append({"$group": {
+            "_id": "$stock_symbol",
+            "doc": {"$first": "$$ROOT"},
+        }})
+        pipeline.append({"$replaceRoot": {"newRoot": "$doc"}})
+
+        # 计算总数（先跑一个不分页的 count）
+        count_pipeline = pipeline.copy()
+        count_pipeline.append({"$count": "total"})
+        count_result = await db.analysis_reports.aggregate(count_pipeline).to_list(1)
+        total = count_result[0]["total"] if count_result else 0
+
+        # 分页
+        pipeline.append({"$sort": {"created_at": -1}})
+        skip = (page - 1) * page_size
+        pipeline.append({"$skip": skip})
+        pipeline.append({"$limit": page_size})
+
+        cursor = db.analysis_reports.aggregate(pipeline)
+        reports = []
+        async for doc in cursor:
+            stock_code = doc.get("stock_symbol", "")
+            stock_name = doc.get("stock_name") or get_stock_name(stock_code)
+
+            market_type = doc.get("market_type")
+            if not market_type:
+                from tradingagents.utils.stock_utils import StockUtils
+                market_info = StockUtils.get_market_info(stock_code)
+                market_type_map = {"china_a": "A股", "hong_kong": "港股", "us": "美股", "unknown": "A股"}
+                market_type = market_type_map.get(market_info.get("market", "unknown"), "A股")
+
+            decision = doc.get("decision") or {}
+            created_at = doc.get("created_at", datetime.utcnow())
+            created_at_tz = to_config_tz(created_at)
+
+            # 计算预计收益率
+            current_price = decision.get("current_price")
+            target_price = decision.get("target_price")
+            expected_return = None
+            if (isinstance(current_price, (int, float)) and current_price > 0
+                    and isinstance(target_price, (int, float))):
+                expected_return = round((target_price - current_price) / current_price * 100, 2)
+
+            report = {
+                "id": str(doc["_id"]),
+                "analysis_id": doc.get("analysis_id", ""),
+                "stock_code": stock_code,
+                "stock_name": stock_name,
+                "market_type": market_type,
+                "model_info": doc.get("model_info", "Unknown"),
+                "status": doc.get("status", "completed"),
+                "created_at": created_at_tz.isoformat() if created_at_tz else str(created_at),
+                "analysis_date": doc.get("analysis_date", ""),
+                "action": decision.get("action"),
+                "target_price": target_price,
+                "current_price": current_price,
+                "expected_return": expected_return,
+                "confidence": decision.get("confidence"),
+                "change_percent": None,  # 稍后批量填充实时涨跌幅
+                "research_depth": doc.get("research_depth", ""),
+                "summary": doc.get("summary", ""),
+            }
+            reports.append(report)
+
+        # 批量获取实时涨跌幅
+        try:
+            a_codes, us_codes, hk_codes = [], [], []
+            for r in reports:
+                code = r["stock_code"]
+                market = r.get("market_type") or "A股"
+                if market == "美股":
+                    us_codes.append(str(code).strip().upper())
+                elif market == "港股":
+                    hk_codes.append(str(code).strip().upper().replace('.HK', '').lstrip('0').zfill(5))
+                else:
+                    a_codes.append(code)
+
+            quotes_map: Dict[str, Dict[str, Any]] = {}
+
+            if a_codes:
+                cursor = db["market_quotes"].find(
+                    {"code": {"$in": a_codes}},
+                    {"code": 1, "close": 1, "pct_chg": 1}
+                )
+                async for d in cursor:
+                    quotes_map[str(d.get("code")).zfill(6)] = d
+
+            if us_codes:
+                cursor = db["market_quotes_us"].find(
+                    {"code": {"$in": us_codes}},
+                    {"code": 1, "close": 1, "pct_chg": 1}
+                )
+                async for d in cursor:
+                    quotes_map[str(d.get("code")).upper()] = d
+
+            if hk_codes:
+                cursor = db["market_quotes_hk"].find(
+                    {"code": {"$in": hk_codes}},
+                    {"code": 1, "close": 1, "pct_chg": 1}
+                )
+                async for d in cursor:
+                    quotes_map[str(d.get("code")).zfill(5)] = d
+
+            for r in reports:
+                code = r["stock_code"]
+                market = r.get("market_type") or "A股"
+                if market == "美股":
+                    q = quotes_map.get(str(code).strip().upper())
+                elif market == "港股":
+                    q = quotes_map.get(str(code).strip().upper().replace('.HK', '').lstrip('0').zfill(5))
+                else:
+                    q = quotes_map.get(str(code).zfill(6))
+                if q:
+                    r["change_percent"] = q.get("pct_chg")
+        except Exception as e:
+            logger.warning(f"⚠️ 获取实时涨跌幅失败: {e}")
+
+        return {
+            "success": True,
+            "data": {
+                "reports": reports,
+                "total": total,
+                "page": page,
+                "page_size": page_size
+            },
+        }
+    except Exception as e:
+        logger.error(f"❌ 获取每股最新报告失败: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/stock-history", response_model=Dict[str, Any])
+async def get_stock_analysis_history(
+    stock_code: str = Query(..., description="股票代码"),
+    days: int = Query(365, ge=0, le=3650, description="近N天，0=全部"),
+    limit: int = Query(200, ge=1, le=2000, description="最多返回条数"),
+    user: dict = Depends(get_current_user)
+):
+    """获取单只股票的分析历史（时间序列，用于画曲线图）"""
+    try:
+        from app.utils.report_parser import (
+            extract_current_price_from_reports,
+            extract_target_price_from_reports,
+        )
+
+        db = get_mongo_db()
+
+        query: Dict[str, Any] = {"stock_symbol": stock_code}
+        if days and days > 0:
+            from datetime import timezone as _tz
+            min_date = datetime.now(_tz.utc) - timedelta(days=days)
+            query["created_at"] = {"$gte": min_date.replace(tzinfo=None)}
+
+        cursor = db.analysis_reports.find(query).sort("created_at", -1).limit(limit)
+        docs = await cursor.to_list(length=limit)
+
+        # 获取股票名称和市场
+        stock_name = stock_code
+        market = ""
+        if docs:
+            stock_name = docs[0].get("stock_name") or get_stock_name(stock_code)
+            market = docs[0].get("market_type") or ""
+
+        points = []
+        for d in docs:
+            decision = d.get("decision") or {}
+            reports = d.get("reports") or {}
+
+            target_price = decision.get("target_price")
+            if not isinstance(target_price, (int, float)) or target_price is None:
+                target_price = extract_target_price_from_reports(reports)
+
+            current_price = decision.get("current_price")
+            if not isinstance(current_price, (int, float)) or current_price is None:
+                current_price = extract_current_price_from_reports(reports)
+
+            action = decision.get("action")
+            confidence = decision.get("confidence")
+
+            expected_return = None
+            if (isinstance(current_price, (int, float)) and current_price > 0
+                    and isinstance(target_price, (int, float))):
+                expected_return = round((target_price - current_price) / current_price * 100, 2)
+
+            created_at = d.get("created_at")
+            if isinstance(created_at, datetime):
+                if created_at.tzinfo is None:
+                    from datetime import timezone as _tz
+                    created_at = created_at.replace(tzinfo=_tz.utc)
+                analyzed_at = created_at.isoformat()
+            else:
+                analyzed_at = str(created_at) if created_at else None
+
+            points.append({
+                "analysis_id": d.get("analysis_id") or str(d.get("_id")),
+                "analyzed_at": analyzed_at,
+                "current_price": current_price,
+                "target_price": target_price,
+                "expected_return": expected_return,
+                "action": action,
+                "confidence": confidence,
+            })
+
+        # 按时间正序（前端折线图需要）
+        points.reverse()
+
+        return {
+            "success": True,
+            "data": {
+                "series": [{
+                    "stock_code": stock_code,
+                    "stock_name": stock_name,
+                    "market": market,
+                    "points": points,
+                }],
+                "total_points": len(points),
+            },
+        }
+    except Exception as e:
+        logger.error(f"❌ 获取股票分析历史失败 {stock_code}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/list", response_model=Dict[str, Any])
 async def get_reports_list(
     page: int = Query(1, ge=1, description="页码"),
