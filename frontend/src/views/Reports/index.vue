@@ -37,6 +37,14 @@
 
         <el-col :span="12">
           <div class="action-buttons">
+            <el-button
+              v-if="selectedReports.length > 0"
+              type="warning"
+              @click="showBatchAnalysisDialog"
+            >
+              <el-icon><DataAnalysis /></el-icon>
+              批量分析 ({{ selectedReports.length }})
+            </el-button>
             <el-button @click="refreshReports">
               <el-icon><Refresh /></el-icon>
               刷新
@@ -52,7 +60,9 @@
         :data="reports"
         v-loading="loading"
         style="width: 100%"
+        @selection-change="handleSelectionChange"
       >
+        <el-table-column type="selection" width="45" />
         <el-table-column prop="stock_code" label="股票代码" width="120" sortable>
           <template #default="{ row }">
             <span class="stock-code">{{ row.stock_code }}</span>
@@ -137,8 +147,11 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="操作" width="200" fixed="right">
+        <el-table-column label="操作" width="240" fixed="right">
           <template #default="{ row }">
+            <el-button type="text" size="small" @click="analyzeStock(row)">
+              分析
+            </el-button>
             <el-button type="text" size="small" @click="viewReport(row)">
               查看
             </el-button>
@@ -205,6 +218,45 @@
         </div>
       </div>
     </el-dialog>
+
+    <!-- 批量分析 Dialog -->
+    <el-dialog
+      v-model="batchDialogVisible"
+      title="批量 AI 分析"
+      width="520px"
+    >
+      <el-alert type="info" :closable="false" style="margin-bottom: 16px;">
+        已选择 <strong>{{ selectedReports.length }}</strong> 只股票，将逐只发起 AI 分析任务
+      </el-alert>
+
+      <el-form label-width="100px">
+        <el-form-item label="分析深度">
+          <el-radio-group v-model="batchDepth">
+            <div style="margin-bottom: 4px"><el-radio label="快速">1级 · 快速 (2-4 分钟)</el-radio></div>
+            <div style="margin-bottom: 4px"><el-radio label="基础">2级 · 基础 (4-6 分钟)</el-radio></div>
+            <div style="margin-bottom: 4px"><el-radio label="标准">3级 · 标准 (6-10 分钟，推荐)</el-radio></div>
+            <div style="margin-bottom: 4px"><el-radio label="深度">4级 · 深度 (10-15 分钟)</el-radio></div>
+            <div><el-radio label="全面">5级 · 全面 (15-25 分钟)</el-radio></div>
+          </el-radio-group>
+        </el-form-item>
+      </el-form>
+
+      <el-alert
+        v-if="selectedReports.length > 10"
+        type="warning"
+        :closable="false"
+        style="margin-top: 12px;"
+      >
+        后端单次最多 10 只，本次将分 {{ Math.ceil(selectedReports.length / 10) }} 批依次提交
+      </el-alert>
+
+      <template #footer>
+        <el-button @click="batchDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="batchLoading" @click="handleBatchAnalysis">
+          开始分析
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -216,10 +268,13 @@ import {
   Document,
   Search,
   Refresh,
-  ArrowDown
+  ArrowDown,
+  DataAnalysis
 } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/stores/auth'
 import { formatDateTime } from '@/utils/datetime'
+import { normalizeMarketForAnalysis } from '@/utils/market'
+import { analysisApi } from '@/api/analysis'
 import * as echarts from 'echarts'
 
 const router = useRouter()
@@ -233,6 +288,11 @@ const currentPage = ref(1)
 const pageSize = ref(20)
 const totalReports = ref(0)
 const reports = ref<any[]>([])
+const selectedReports = ref<any[]>([])
+
+const handleSelectionChange = (selection: any[]) => {
+  selectedReports.value = selection
+}
 
 const fetchReports = async () => {
   loading.value = true
@@ -270,8 +330,77 @@ const handleSizeChange = () => { currentPage.value = 1; fetchReports() }
 const handleCurrentChange = () => { fetchReports() }
 const refreshReports = () => { fetchReports() }
 
+// ---- 批量分析 ----
+const batchDialogVisible = ref(false)
+const batchDepth = ref('标准')
+const batchLoading = ref(false)
+
+const showBatchAnalysisDialog = () => {
+  if (selectedReports.value.length === 0) {
+    ElMessage.warning('请先选择要分析的股票')
+    return
+  }
+  batchDialogVisible.value = true
+}
+
+const handleBatchAnalysis = async () => {
+  if (selectedReports.value.length === 0) return
+  batchLoading.value = true
+  try {
+    const chunkSize = 10
+    const stocks = selectedReports.value.slice()
+    const chunks: typeof stocks[] = []
+    for (let i = 0; i < stocks.length; i += chunkSize) {
+      chunks.push(stocks.slice(i, i + chunkSize))
+    }
+
+    let successBatches = 0
+    let totalTasks = 0
+
+    for (let i = 0; i < chunks.length; i++) {
+      const chunk = chunks[i]
+      const symbols = chunk.map((s: any) => s.stock_code).filter(Boolean)
+      const batchTitle = chunks.length > 1
+        ? `报告页批量分析 ${i + 1}/${chunks.length}`
+        : `报告页批量分析（${symbols.length} 只）`
+      try {
+        const res: any = await analysisApi.startBatchAnalysis({
+          title: batchTitle,
+          symbols,
+          parameters: { market_type: 'auto', research_depth: batchDepth.value } as any,
+        })
+        if (res?.success) {
+          successBatches++
+          totalTasks += res.data?.total_tasks ?? symbols.length
+        }
+      } catch (e: any) {
+        console.error(`批量分析第 ${i + 1} 批失败:`, e)
+      }
+    }
+
+    if (successBatches > 0) {
+      ElMessage.success(`已提交 ${totalTasks} 个分析任务，请到「任务中心」查看`)
+    } else {
+      ElMessage.error('批量分析提交失败')
+    }
+    batchDialogVisible.value = false
+  } catch (e: any) {
+    ElMessage.error(e?.message || '批量分析失败')
+  } finally {
+    batchLoading.value = false
+  }
+}
+
 const viewReport = (row: any) => {
   router.push(`/reports/view/${row.id}`)
+}
+
+const analyzeStock = (row: any) => {
+  const href = router.resolve({
+    name: 'SingleAnalysis',
+    query: { stock: row.stock_code, market: normalizeMarketForAnalysis(row.market_type || 'A股') }
+  }).href
+  window.open(href, '_blank', 'noopener')
 }
 
 const downloadReport = async (report: any, format: string = 'markdown') => {
@@ -340,8 +469,8 @@ const sortNum = (a: any, b: any) => {
   return va - vb
 }
 
-const getMarketTagType = (market: string) => {
-  if (market === 'A股') return ''
+const getMarketTagType = (market: string): any => {
+  if (market === 'A股') return 'primary'
   if (market === '港股') return 'warning'
   if (market === '美股') return 'danger'
   return 'info'

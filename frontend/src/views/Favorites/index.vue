@@ -788,7 +788,7 @@ const addForm = ref({
 })
 
 // 股票代码验证器
-const validateStockCode = (rule: any, value: any, callback: any) => {
+const validateStockCode = (_rule: any, value: any, callback: any) => {
   if (!value) {
     callback(new Error('请输入股票代码'))
     return
@@ -854,7 +854,7 @@ const filteredFavorites = computed<FavoriteItem[]>(() => {
   if (searchKeyword.value) {
     const keyword = searchKeyword.value.toLowerCase()
     result = result.filter((item: FavoriteItem) =>
-      item.stock_code.toLowerCase().includes(keyword) ||
+      (item.stock_code || '').toLowerCase().includes(keyword) ||
       item.stock_name.toLowerCase().includes(keyword)
     )
   }
@@ -888,11 +888,6 @@ const filteredFavorites = computed<FavoriteItem[]>(() => {
   }
 
   return result
-})
-
-// 判断是否有A股自选股
-const hasAStocks = computed(() => {
-  return favorites.value.some(item => item.market === 'A股')
 })
 
 // 判断选中的股票是否都是A股
@@ -1230,10 +1225,11 @@ const editFavorite = (row: any) => {
 }
 
 const analyzeFavorite = (row: any) => {
-  router.push({
+  const href = router.resolve({
     name: 'SingleAnalysis',
     query: { stock: row.stock_code, market: normalizeMarketForAnalysis(row.market || 'A股') }
-  })
+  }).href
+  window.open(href, '_blank', 'noopener')
 }
 
 const removeFavorite = async (row: any) => {
@@ -1280,7 +1276,7 @@ const handleSelectionChange = (selection: FavoriteItem[]) => {
 // 显示单个股票同步对话框
 const showSingleSyncDialog = (row: FavoriteItem) => {
   currentSyncStock.value = {
-    stock_code: row.stock_code,
+    stock_code: row.stock_code || '',
     stock_name: row.stock_name
   }
   singleSyncDialogVisible.value = true
@@ -1455,7 +1451,7 @@ const handleBatchSync = async () => {
 
   batchSyncLoading.value = true
   try {
-    const symbols = selectedStocks.value.map(stock => stock.stock_code)
+    const symbols = selectedStocks.value.map(stock => stock.stock_code).filter((s): s is string => !!s)
 
     const res = await stockSyncApi.syncBatch({
       symbols,
