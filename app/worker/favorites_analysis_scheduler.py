@@ -163,23 +163,35 @@ async def _run_for_markets(markets: Iterable[str], label: str) -> dict:
 
 async def run_favorites_analysis_a_hk_morning():
     """A 股 / 港股 · 盘中 10:30"""
-    logger.info("📊 [自选股定时分析] A股/港股 · 盘中 10:30 开始")
-    return await _run_for_markets(A_HK_MARKETS, "A股港股-盘中10:30")
+    logger.info("📊 [自选股定时分析] A股/港股 · 盘中 10:30 已禁用")
+    return {"users": 0, "stocks": 0, "success": 0, "failed": 0, "errors": ["任务已禁用"]}
+    
+    # 原始代码已注释，如需启用请取消注释
+    # return await _run_for_markets(A_HK_MARKETS, "A股/港股·盘中10:30")
 
 
 async def run_favorites_analysis_a_hk_afternoon():
     """A 股 / 港股 · 收盘后 16:30"""
-    logger.info("📊 [自选股定时分析] A股/港股 · 收盘后 16:30 开始")
-    return await _run_for_markets(A_HK_MARKETS, "A股港股-收盘后16:30")
+    logger.info("📊 [自选股定时分析] A股/港股 · 收盘后 16:30 已禁用")
+    return {"users": 0, "stocks": 0, "success": 0, "failed": 0, "errors": ["任务已禁用"]}
+    
+    # 原始代码已注释，如需启用请取消注释
+    # return await _run_for_markets(A_HK_MARKETS, "A股/港股·收盘后16:30")
 
 
 async def run_favorites_analysis_us_morning():
     """美股 · 09:30 (前一美股交易日收盘后复盘)"""
-    logger.info("📊 [自选股定时分析] 美股 · 09:30 开始")
-    return await _run_for_markets(US_MARKETS, "美股-09:30")
+    logger.info("📊 [自选股定时分析] 美股 · 09:30 已禁用")
+    return {"users": 0, "stocks": 0, "success": 0, "failed": 0, "errors": ["任务已禁用"]}
+    
+    # 原始代码已注释，如需启用请取消注释
+    # return await _run_for_markets(US_MARKETS, "美股·09:30复盘")
 
 
 async def run_favorites_analysis_us_evening():
     """美股 · 22:30 (美股开盘后实时)"""
-    logger.info("📊 [自选股定时分析] 美股 · 22:30 开始")
-    return await _run_for_markets(US_MARKETS, "美股-22:30")
+    logger.info("📊 [自选股定时分析] 美股 · 22:30 已禁用")
+    return {"users": 0, "stocks": 0, "success": 0, "failed": 0, "errors": ["任务已禁用"]}
+    
+    # 原始代码已注释，如需启用请取消注释
+    # return await _run_for_markets(US_MARKETS, "美股·22:30实时")
