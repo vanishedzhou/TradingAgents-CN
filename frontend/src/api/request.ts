@@ -411,6 +411,14 @@ const generateRequestId = (): string => {
 const shouldRetry = async (config: RequestConfig | undefined, error: any): Promise<boolean> => {
   if (!config) return false
 
+  // 🔧 只对幂等方法（GET/HEAD/OPTIONS）重试，POST/PUT/DELETE 等非幂等请求不重试
+  // 避免批量分析等 POST 请求因超时被自动重试，导致后端重复创建任务
+  const method = (config.method || 'get').toLowerCase()
+  if (!['get', 'head', 'options'].includes(method)) {
+    console.log(`⏭️ 非幂等请求 (${method.toUpperCase()}) 不进行重试: ${config.url}`)
+    return false
+  }
+
   // 获取重试配置（默认重试 2 次）
   let retryCount = 2
   if (config.retryCount !== undefined) {

@@ -799,6 +799,50 @@ async def submit_batch_analysis(
         if len(stock_symbols) > MAX_BATCH_SIZE:
             raise ValueError(f"批量分析最多支持 {MAX_BATCH_SIZE} 个股票，当前提交了 {len(stock_symbols)} 个")
 
+        # 🔧 去重保护：检查同一用户是否在短时间内（5分钟）对同一批股票已有 pending/processing 状态的任务
+        # 防止前端因超时自动重试 POST 导致重复创建任务
+        from app.core.database import get_mongo_db as _get_db
+        from datetime import datetime as _dt, timedelta as _td
+        _db = _get_db()
+        _cutoff = _dt.utcnow() - _td(minutes=5)
+        _skipped_symbols: List[str] = []
+        _filtered_symbols: List[str] = []
+
+        for symbol in stock_symbols:
+            existing = await _db.analysis_tasks.find_one({
+                "user_id": user["id"],
+                "stock_code": symbol,
+                "status": {"$in": ["pending", "processing", "running"]},
+                "created_at": {"$gte": _cutoff}
+            })
+            if existing:
+                _skipped_symbols.append(symbol)
+                logger.warning(
+                    f"⏭️ [批量分析] 跳过重复任务: {symbol} (已有进行中的任务 {existing.get('task_id')}，"
+                    f"创建于 {existing.get('created_at')})"
+                )
+            else:
+                _filtered_symbols.append(symbol)
+
+        if _skipped_symbols:
+            logger.info(f"⚠️ [批量分析] 去重保护：跳过 {len(_skipped_symbols)} 个已在进行中的股票: {_skipped_symbols}")
+
+        if not _filtered_symbols:
+            return {
+                "success": True,
+                "data": {
+                    "batch_id": batch_id,
+                    "total_tasks": 0,
+                    "task_ids": [],
+                    "mapping": [],
+                    "status": "skipped",
+                    "skipped_symbols": _skipped_symbols
+                },
+                "message": f"所有股票在最近5分钟内已有进行中的分析任务，已跳过"
+            }
+
+        stock_symbols = _filtered_symbols
+
         # 为每只股票创建单股分析任务
         for i, symbol in enumerate(stock_symbols):
             logger.info(f"📝 [批量分析] 正在创建第 {i+1}/{len(stock_symbols)} 个任务: {symbol}")
