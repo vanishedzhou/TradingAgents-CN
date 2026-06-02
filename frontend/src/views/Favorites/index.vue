@@ -616,6 +616,52 @@
             </div>
           </el-radio-group>
         </el-form-item>
+
+        <el-divider style="margin: 8px 0;" />
+
+        <el-form-item label="快速分析模型">
+          <el-select
+            v-model="batchAnalysisForm.quickAnalysisModel"
+            size="small"
+            style="width: 100%"
+            filterable
+            placeholder="选择快速分析模型"
+          >
+            <el-option
+              v-for="model in batchAnalysisAvailableModels"
+              :key="`q-${model.provider}/${model.model_name}`"
+              :label="model.model_display_name || model.model_name"
+              :value="model.model_name"
+            >
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+                <span>{{ model.model_display_name || model.model_name }}</span>
+                <span style="font-size:12px;color:#909399;">{{ model.provider }}</span>
+              </div>
+            </el-option>
+          </el-select>
+        </el-form-item>
+
+        <el-form-item label="深度决策模型">
+          <el-select
+            v-model="batchAnalysisForm.deepAnalysisModel"
+            size="small"
+            style="width: 100%"
+            filterable
+            placeholder="选择深度决策模型"
+          >
+            <el-option
+              v-for="model in batchAnalysisAvailableModels"
+              :key="`d-${model.provider}/${model.model_name}`"
+              :label="model.model_display_name || model.model_name"
+              :value="model.model_name"
+            >
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+                <span>{{ model.model_display_name || model.model_name }}</span>
+                <span style="font-size:12px;color:#909399;">{{ model.provider }}</span>
+              </div>
+            </el-option>
+          </el-select>
+        </el-form-item>
       </el-form>
 
       <el-alert
@@ -709,6 +755,7 @@ import { favoritesApi } from '@/api/favorites'
 import { tagsApi } from '@/api/tags'
 import { stockSyncApi } from '@/api/stockSync'
 import { analysisApi } from '@/api/analysis'
+import { configApi } from '@/api/config'
 import { normalizeMarketForAnalysis } from '@/utils/market'
 import { ApiClient } from '@/api/request'
 import AnalysisHistoryChart from './AnalysisHistoryChart.vue'
@@ -759,8 +806,27 @@ const batchSyncForm = ref({
 const batchAnalysisDialogVisible = ref(false)
 const batchAnalysisLoading = ref(false)
 const batchAnalysisForm = ref({
-  researchDepth: '标准' as '快速' | '基础' | '标准' | '深度' | '全面'
+  researchDepth: '标准' as '快速' | '基础' | '标准' | '深度' | '全面',
+  quickAnalysisModel: 'deepseek-v4-pro',
+  deepAnalysisModel: 'deepseek-v4-pro'
 })
+
+// 可用模型列表（批量分析对话框用）
+const batchAnalysisAvailableModels = ref<any[]>([])
+
+// 加载可用模型
+const loadBatchAnalysisModels = async () => {
+  try {
+    const llmConfigs = await configApi.getLLMConfigs()
+    batchAnalysisAvailableModels.value = llmConfigs.filter((c: any) => c.enabled)
+    // 从系统设置加载默认模型，优先用 deepseek-v4-pro
+    const defaultModels = await configApi.getDefaultModels()
+    batchAnalysisForm.value.quickAnalysisModel = defaultModels.quick_analysis_model || 'deepseek-v4-pro'
+    batchAnalysisForm.value.deepAnalysisModel = defaultModels.deep_analysis_model || 'deepseek-v4-pro'
+  } catch (error) {
+    console.error('加载模型配置失败:', error)
+  }
+}
 
 // 单个股票同步对话框
 const singleSyncDialogVisible = ref(false)
@@ -1368,6 +1434,7 @@ const showBatchAnalysisDialog = () => {
     return
   }
   batchAnalysisDialogVisible.value = true
+  loadBatchAnalysisModels()
 }
 
 // 执行批量 AI 分析（后端单次最多 10 只，超过自动分批）
@@ -1407,6 +1474,8 @@ const handleBatchAnalysis = async () => {
           parameters: {
             market_type: 'auto',
             research_depth: batchAnalysisForm.value.researchDepth,
+            quick_analysis_model: batchAnalysisForm.value.quickAnalysisModel,
+            deep_analysis_model: batchAnalysisForm.value.deepAnalysisModel,
           } as any,
         })
         if (res?.success) {
