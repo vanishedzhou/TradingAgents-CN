@@ -92,19 +92,7 @@ echo "[3.5/5] 初始化 LLM Provider 和管理员账号..."
 
 cd "$PROJECT_DIR"
 
-# 强制写入默认模型配置
-echo "  设置默认分析模型..."
-python3 -c "
-import json
-path = '$PROJECT_DIR/config/settings.json'
-with open(path) as f: d = json.load(f)
-d['quick_think_llm'] = 'claude-opus-4.6'
-d['deep_think_llm'] = 'claude-opus-4.6-1m'
-d['quick_analysis_model'] = 'claude-opus-4.6'
-d['deep_analysis_model'] = 'claude-opus-4.6-1m'
-with open(path, 'w') as f: json.dump(d, f, indent=2, ensure_ascii=False)
-print('OK')
-" && echo "  ✓ 默认模型已设置 (快速: claude-opus-4.6 / 深度: claude-opus-4.6-1m)"
+# 注意: 不再强制覆盖 settings.json 中的模型配置，保留用户设置
 
 # 初始化 llm_providers 集合（含 CodeBuddy）
 PYTHONPATH="$PROJECT_DIR" venv/bin/python app/scripts/init_providers.py > /tmp/tradingagents-providers.log 2>&1
@@ -172,17 +160,7 @@ for i in $(seq 1 30); do
     sleep 1
 done
 
-# 将默认模型写入数据库（前端从数据库读取）
-TOKEN=$(curl -s -X POST http://localhost:8000/api/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"admin123"}' | python3 -c "import json,sys; print(json.load(sys.stdin).get('data',{}).get('access_token',''))" 2>/dev/null)
-if [ -n "$TOKEN" ]; then
-    curl -s -X PUT http://localhost:8000/api/config/settings \
-      -H "Authorization: Bearer $TOKEN" \
-      -H "Content-Type: application/json" \
-      -d '{"quick_analysis_model":"claude-opus-4.6","deep_analysis_model":"claude-opus-4.6-1m","quick_think_llm":"claude-opus-4.6","deep_think_llm":"claude-opus-4.6-1m","finnhub_api_key":"d7bsf81r01quh9fbk6lgd7bsf81r01quh9fbk6m0","alpha_vantage_api_key":"JWEQCDPS4VH255SC"}' > /dev/null 2>&1
-    echo "  ✓ 默认模型已同步到数据库 (claude-opus-4.6 / claude-opus-4.6-1m) + Finnhub Key"
-fi
+# 注意: 不再强制覆盖数据库中的模型配置，保留用户设置
 
 # ── 5. 启动前端 ──────────────────────────────────────────────
 

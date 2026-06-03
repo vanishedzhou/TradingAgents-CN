@@ -520,11 +520,24 @@ class TradingAgentsGraph:
             # DeepSeek V3配置 - 使用支持token统计的适配器
             from tradingagents.llm_adapters.deepseek_adapter import ChatDeepSeek
 
-            deepseek_api_key = os.getenv('DEEPSEEK_API_KEY')
+            # 🔥 优先使用数据库配置的 API Key，否则从环境变量读取
+            deepseek_api_key = (
+                self.config.get("quick_api_key")
+                or self.config.get("deep_api_key")
+                or os.getenv('DEEPSEEK_API_KEY')
+            )
+            logger.info(f"🔑 [DeepSeek] API Key 来源: {'数据库配置' if self.config.get('quick_api_key') or self.config.get('deep_api_key') else '环境变量'}")
             if not deepseek_api_key:
-                raise ValueError("使用DeepSeek需要设置DEEPSEEK_API_KEY环境变量")
+                raise ValueError(
+                    "使用DeepSeek需要设置DEEPSEEK_API_KEY环境变量，"
+                    "或在Web界面配置API Key（设置 → 大模型厂家）。"
+                )
 
-            deepseek_base_url = os.getenv('DEEPSEEK_BASE_URL', 'https://api.deepseek.com')
+            # 🔥 优先使用数据库配置的 backend_url，否则从环境变量读取
+            deepseek_base_url = (
+                self.config.get("backend_url")
+                or os.getenv('DEEPSEEK_BASE_URL', 'https://api.deepseek.com')
+            )
 
             # 🔧 从配置中读取模型参数（优先使用用户配置，否则使用默认值）
             quick_config = self.config.get("quick_model_config", {})
@@ -542,6 +555,7 @@ class TradingAgentsGraph:
 
             logger.info(f"🔧 [DeepSeek-快速模型] max_tokens={quick_max_tokens}, temperature={quick_temperature}, timeout={quick_timeout}s")
             logger.info(f"🔧 [DeepSeek-深度模型] max_tokens={deep_max_tokens}, temperature={deep_temperature}, timeout={deep_timeout}s")
+            logger.info(f"🔧 [DeepSeek] base_url: {deepseek_base_url}")
 
             # 使用支持token统计的DeepSeek适配器
             self.deep_thinking_llm = ChatDeepSeek(

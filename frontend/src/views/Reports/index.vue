@@ -229,7 +229,7 @@
         已选择 <strong>{{ selectedReports.length }}</strong> 只股票，将逐只发起 AI 分析任务
       </el-alert>
 
-      <el-form label-width="100px">
+      <el-form label-width="110px">
         <el-form-item label="分析深度">
           <el-radio-group v-model="batchDepth">
             <div style="margin-bottom: 4px"><el-radio label="快速">1级 · 快速 (2-4 分钟)</el-radio></div>
@@ -238,6 +238,52 @@
             <div style="margin-bottom: 4px"><el-radio label="深度">4级 · 深度 (10-15 分钟)</el-radio></div>
             <div><el-radio label="全面">5级 · 全面 (15-25 分钟)</el-radio></div>
           </el-radio-group>
+        </el-form-item>
+
+        <el-divider style="margin: 8px 0;" />
+
+        <el-form-item label="快速分析模型">
+          <el-select
+            v-model="batchQuickModel"
+            size="small"
+            style="width: 100%"
+            filterable
+            placeholder="选择快速分析模型"
+          >
+            <el-option
+              v-for="model in batchAvailableModels"
+              :key="`q-${model.provider}/${model.model_name}`"
+              :label="model.model_display_name || model.model_name"
+              :value="model.model_name"
+            >
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+                <span>{{ model.model_display_name || model.model_name }}</span>
+                <span style="font-size:12px;color:#909399;">{{ model.provider }}</span>
+              </div>
+            </el-option>
+          </el-select>
+        </el-form-item>
+
+        <el-form-item label="深度决策模型">
+          <el-select
+            v-model="batchDeepModel"
+            size="small"
+            style="width: 100%"
+            filterable
+            placeholder="选择深度决策模型"
+          >
+            <el-option
+              v-for="model in batchAvailableModels"
+              :key="`d-${model.provider}/${model.model_name}`"
+              :label="model.model_display_name || model.model_name"
+              :value="model.model_name"
+            >
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+                <span>{{ model.model_display_name || model.model_name }}</span>
+                <span style="font-size:12px;color:#909399;">{{ model.provider }}</span>
+              </div>
+            </el-option>
+          </el-select>
         </el-form-item>
       </el-form>
 
@@ -275,6 +321,7 @@ import { useAuthStore } from '@/stores/auth'
 import { formatDateTime } from '@/utils/datetime'
 import { normalizeMarketForAnalysis } from '@/utils/market'
 import { analysisApi } from '@/api/analysis'
+import { configApi } from '@/api/config'
 import * as echarts from 'echarts'
 
 const router = useRouter()
@@ -334,6 +381,21 @@ const refreshReports = () => { fetchReports() }
 const batchDialogVisible = ref(false)
 const batchDepth = ref('标准')
 const batchLoading = ref(false)
+const batchQuickModel = ref('deepseek-v4-pro')
+const batchDeepModel = ref('deepseek-v4-pro')
+const batchAvailableModels = ref<any[]>([])
+
+const loadBatchModels = async () => {
+  try {
+    const llmConfigs = await configApi.getLLMConfigs()
+    batchAvailableModels.value = llmConfigs.filter((c: any) => c.enabled)
+    const defaultModels = await configApi.getDefaultModels()
+    batchQuickModel.value = defaultModels.quick_analysis_model || 'deepseek-v4-pro'
+    batchDeepModel.value = defaultModels.deep_analysis_model || 'deepseek-v4-pro'
+  } catch (error) {
+    console.error('加载模型配置失败:', error)
+  }
+}
 
 const showBatchAnalysisDialog = () => {
   if (selectedReports.value.length === 0) {
@@ -341,6 +403,7 @@ const showBatchAnalysisDialog = () => {
     return
   }
   batchDialogVisible.value = true
+  loadBatchModels()
 }
 
 const handleBatchAnalysis = async () => {
@@ -367,7 +430,7 @@ const handleBatchAnalysis = async () => {
         const res: any = await analysisApi.startBatchAnalysis({
           title: batchTitle,
           symbols,
-          parameters: { market_type: 'auto', research_depth: batchDepth.value } as any,
+          parameters: { market_type: 'auto', research_depth: batchDepth.value, quick_analysis_model: batchQuickModel.value, deep_analysis_model: batchDeepModel.value } as any,
         })
         if (res?.success) {
           successBatches++
