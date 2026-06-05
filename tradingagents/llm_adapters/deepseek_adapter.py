@@ -28,13 +28,54 @@ except ImportError:
     logger.warning("⚠️ Token跟踪功能未启用")
 
 
+def _parse_thinking_suffix(model: str):
+    """
+    解析模型名称中的思考模式后缀
+
+    支持的后缀:
+      :thinking-high — 启用思考模式，预算 8000 tokens，努力等级 high
+      :thinking-max  — 启用思考模式，不限预算，努力等级 max
+
+    Args:
+        model: 模型名称，如 'deepseek-v4-pro:thinking-high'
+
+    Returns:
+        tuple: (base_model, extra_body)
+               extra_body 为 None 表示不启用思考模式
+    """
+    if ':thinking-' not in model:
+        return model, None
+
+    base_model, suffix = model.split(':thinking-', 1)
+
+    if suffix == 'high':
+        extra_body = {
+            "thinking": {"type": "enabled", "budget_tokens": 8000},
+            "reasoning_effort": "high"
+        }
+    elif suffix == 'max':
+        extra_body = {
+            "thinking": {"type": "enabled"},
+            "reasoning_effort": "max"
+        }
+    else:
+        logger.warning(f"⚠️ [DeepSeek] 未知思考模式后缀 ':thinking-{suffix}'，忽略")
+        return model, None
+
+    return base_model, extra_body
+
+
 class ChatDeepSeek(ChatOpenAI):
     """
-    DeepSeek聊天模型适配器，支持Token使用统计
-    
-    继承自ChatOpenAI，添加了Token使用量统计功能
+    DeepSeek聊天模型适配器，支持Token使用统计和思考模式
+
+    继承自ChatOpenAI，添加了Token使用量统计功能。
+    支持通过模型名称后缀控制思考模式强度：
+      deepseek-v4-pro:thinking-high  — 思考模式·高强度
+      deepseek-v4-pro:thinking-max   — 思考模式·Max强度
+      deepseek-v4-flash:thinking-high — Flash版思考模式
     """
-    
+
     def __init__(
         self,
         model: str = "deepseek-chat",
@@ -48,14 +89,28 @@ class ChatDeepSeek(ChatOpenAI):
         初始化DeepSeek适配器
         
         Args:
-            model: 模型名称，默认为deepseek-chat
+            model: 模型名称，默认为deepseek-chat；可通过后缀指定思考模式，
+                   例如 'deepseek-v4-pro:thinking-high'
             api_key: API密钥，如果不提供则从环境变量DEEPSEEK_API_KEY获取
             base_url: API基础URL
-            temperature: 温度参数
+            temperature: 温度参数（思考模式下被忽略）
             max_tokens: 最大token数
             **kwargs: 其他参数
         """
-        
+
+        # ── 解析思考模式后缀 ───────────────────────────────────────
+        original_model = model
+        model, thinking_extra_body = _parse_thinking_suffix(model)
+
+        if thinking_extra_body:
+            # 合并到 model_kwargs（调用者可能已传入自己的 model_kwargs）
+            existing_kwargs = kwargs.get('model_kwargs', {})
+            kwargs['model_kwargs'] = {**existing_kwargs, 'extra_body': thinking_extra_body}
+            logger.info(
+                f"🧠 [DeepSeek] 思考模式已启用: {original_model!r} → "
+                f"base={model!r}, extra_body={thinking_extra_body}"
+            )
+
         # 获取API密钥
         if api_key is None:
             # 导入 API Key 验证工具
@@ -102,8 +157,9 @@ class ChatDeepSeek(ChatOpenAI):
             **kwargs
         )
         
-        self.model_name = model
-        
+        # 保存原始模型名（含思考后缀，供统计用）；父类使用去除后缀的 base 名
+        self.model_name = original_model if thinking_extra_body else model
+
     def _generate(
         self,
         messages: List[BaseMessage],

@@ -358,7 +358,12 @@ def _get_default_provider_by_model(model_name: str) -> str:
         'deepseek-chat': 'deepseek',
         'deepseek-coder': 'deepseek',
         'deepseek-v4-pro': 'deepseek',
+        'deepseek-v4-flash': 'deepseek',
         'deepseek-reasoner': 'deepseek',
+        # DeepSeek 思考模式变体
+        'deepseek-v4-pro:thinking-high': 'deepseek',
+        'deepseek-v4-pro:thinking-max': 'deepseek',
+        'deepseek-v4-flash:thinking-high': 'deepseek',
 
         # 智谱AI
         'glm-4': 'zhipu',
