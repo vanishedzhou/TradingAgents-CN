@@ -267,11 +267,15 @@ class ModelCapabilityService:
         # 检查快速模型是否支持工具调用
         quick_features = quick_config.get("features", [])
         logger.info(f"🔍 检查快速模型特性: {quick_features}")
-        if ModelFeature.TOOL_CALLING not in quick_features:
+        if quick_features and ModelFeature.TOOL_CALLING not in quick_features:
+            # 仅当 features 非空且明确不含 tool_calling 时才拒绝
+            # features 为空表示"未配置"，不代表不支持
             result["valid"] = False
             warning = f"❌ 快速模型 {quick_model} 不支持工具调用，无法完成数据收集任务"
             result["warnings"].append(warning)
             logger.error(warning)
+        elif not quick_features:
+            logger.info(f"⚠️ 快速模型 {quick_model} 未配置 features，跳过工具调用检查")
 
         # 检查深度模型
         deep_level = deep_config["capability_level"]
@@ -344,9 +348,11 @@ class ModelCapabilityService:
             level = getattr(m, 'capability_level', 2)
             features = getattr(m, 'features', [])
             
+            # features 为空表示未配置，视为支持 tool_calling
+            has_tool_calling = not features or ModelFeature.TOOL_CALLING in features
             if (ModelRole.QUICK_ANALYSIS in roles or ModelRole.BOTH in roles) and \
                level >= requirements["quick_model_min"] and \
-               ModelFeature.TOOL_CALLING in features:
+               has_tool_calling:
                 quick_candidates.append(m)
         
         # 筛选适合深度分析的模型

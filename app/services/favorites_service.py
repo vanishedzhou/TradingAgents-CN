@@ -32,7 +32,7 @@ class FavoritesService:
         # 强制返回 False，统一使用 user_favorites 集合
         return False
 
-    def _format_favorite(self, favorite: Dict[str, Any]) -> Dict[str, Any]:
+    def _format_favorite(self, favorite: Dict[str, Any], index: int = 0) -> Dict[str, Any]:
         """格式化收藏条目（仅基础信息，不包含实时行情）。
         行情将在 get_user_favorites 中批量富集。
         """
@@ -48,6 +48,9 @@ class FavoritesService:
             "notes": favorite.get("notes", ""),
             "alert_price_high": favorite.get("alert_price_high"),
             "alert_price_low": favorite.get("alert_price_low"),
+            # 置顶 & 排序（兼容旧数据）
+            "is_pinned": favorite.get("is_pinned", False),
+            "sort_order": favorite.get("sort_order", index),
             # 行情占位，稍后填充
             "current_price": None,
             "change_percent": None,
@@ -70,8 +73,8 @@ class FavoritesService:
             doc = await db.user_favorites.find_one({"user_id": user_id})
             favorites = (doc or {}).get("favorites", [])
 
-        # 先格式化基础字段
-        items = [self._format_favorite(fav) for fav in favorites]
+        # 先格式化基础字段（传入 index 用于旧数据 sort_order 兜底）
+        items = [self._format_favorite(fav, i) for i, fav in enumerate(favorites)]
 
         # 批量获取股票基础信息（板块等）
         codes = [it.get("stock_code") for it in items if it.get("stock_code")]
@@ -242,7 +245,9 @@ class FavoritesService:
                 "tags": tags or [],
                 "notes": notes,
                 "alert_price_high": alert_price_high,
-                "alert_price_low": alert_price_low
+                "alert_price_low": alert_price_low,
+                "is_pinned": False,
+                "sort_order": 0,  # 实际值在下方计算
             }
 
             logger.info(f"🔧 [add_favorite] 自选股数据构建完成: {favorite_stock}")
@@ -279,6 +284,11 @@ class FavoritesService:
                 return success
             else:
                 logger.info(f"🔧 [add_favorite] 使用字符串ID方式添加到 user_favorites 集合")
+                # 先查当前 favorites 数量，计算新条目的 sort_order（追加在非置顶组末尾）
+                doc = await db.user_favorites.find_one({"user_id": user_id}, {"favorites": 1})
+                current_count = len((doc or {}).get("favorites", []))
+                favorite_stock["sort_order"] = current_count
+
                 result = await db.user_favorites.update_one(
                     {"user_id": user_id},
                     {
@@ -329,7 +339,8 @@ class FavoritesService:
         tags: Optional[List[str]] = None,
         notes: Optional[str] = None,
         alert_price_high: Optional[float] = None,
-        alert_price_low: Optional[float] = None
+        alert_price_low: Optional[float] = None,
+        is_pinned: Optional[bool] = None
     ) -> bool:
         """更新自选股信息（兼容字符串ID与ObjectId）"""
         db = await self._get_db()
@@ -346,6 +357,8 @@ class FavoritesService:
             update_fields[prefix + "alert_price_high"] = alert_price_high
         if alert_price_low is not None:
             update_fields[prefix + "alert_price_low"] = alert_price_low
+        if is_pinned is not None:
+            update_fields[prefix + "is_pinned"] = is_pinned
 
         if not update_fields:
             return True
@@ -373,6 +386,68 @@ class FavoritesService:
                 }
             )
             return result.modified_count > 0
+
+    async def reorder_favorites(
+        self,
+        user_id: str,
+        ordered_items: List[Dict[str, Any]]
+    ) -> bool:
+        """
+        批量重排序自选股。
+
+        ordered_items: 按新顺序排列的条目列表，每项包含 stock_code 和 is_pinned。
+        策略：
+          1. 从 DB 读取完整 favorites 列表（保留所有原有字段）
+          2. 按 ordered_items 顺序重建数组，赋 sort_order = index，同步 is_pinned
+          3. $set 整体写回 favorites 数组
+        """
+        import logging
+        logger = logging.getLogger("webapi")
+
+        db = await self._get_db()
+
+        # 目前实际路径都走 user_favorites（_is_valid_object_id 恒返回 False）
+        if self._is_valid_object_id(user_id):
+            # ObjectId 路径：直接返回 True（暂不支持）
+            logger.warning("[reorder_favorites] ObjectId 路径暂不支持重排序")
+            return True
+
+        doc = await db.user_favorites.find_one({"user_id": user_id})
+        if not doc:
+            return False
+
+        # 建立 stock_code -> 原始 dict 的映射
+        existing_map: Dict[str, Dict[str, Any]] = {
+            fav["stock_code"]: fav
+            for fav in doc.get("favorites", [])
+            if fav.get("stock_code")
+        }
+
+        # 按 ordered_items 顺序重建，赋 sort_order 和 is_pinned
+        new_favorites: List[Dict[str, Any]] = []
+        for idx, item in enumerate(ordered_items):
+            code = item.get("stock_code")
+            if not code or code not in existing_map:
+                continue
+            fav = dict(existing_map[code])  # 浅拷贝，保留 added_at 等原有字段
+            fav["sort_order"] = idx
+            fav["is_pinned"] = bool(item.get("is_pinned", fav.get("is_pinned", False)))
+            new_favorites.append(fav)
+
+        # 如果有旧条目不在 ordered_items 里（理论上不应发生，做兜底）
+        ordered_codes = {item.get("stock_code") for item in ordered_items}
+        for code, fav in existing_map.items():
+            if code not in ordered_codes:
+                fav = dict(fav)
+                fav["sort_order"] = len(new_favorites)
+                new_favorites.append(fav)
+
+        result = await db.user_favorites.update_one(
+            {"user_id": user_id},
+            {"$set": {"favorites": new_favorites, "updated_at": datetime.utcnow()}}
+        )
+        logger.info(f"[reorder_favorites] user_id={user_id} → {len(new_favorites)} 条，modified={result.modified_count}")
+        return True
 
     async def is_favorite(self, user_id: str, stock_code: str) -> bool:
         """检查股票是否在自选股中（兼容字符串ID与ObjectId）"""

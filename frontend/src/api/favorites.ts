@@ -15,6 +15,8 @@ export interface FavoriteItem {
   current_price?: number | null
   change_percent?: number | null
   volume?: number | null
+  is_pinned?: boolean
+  sort_order?: number
 }
 
 export interface AddFavoriteReq {
@@ -78,6 +80,18 @@ export const favoritesApi = {
       data_source: string
       message: string
     }>('/api/favorites/sync-realtime', { data_source }),
+
+  /**
+   * 切换置顶状态
+   */
+  togglePin: (symbol: string, isPinned: boolean) =>
+    ApiClient.put<{ message: string }>(`/api/favorites/${symbol}`, { is_pinned: isPinned }),
+
+  /**
+   * 批量保存自选股新顺序（同时写入 is_pinned）
+   */
+  reorder: (items: { stock_code: string; is_pinned: boolean }[]) =>
+    ApiClient.put<{ message: string }>('/api/favorites/reorder', { items }),
 
   /**
    * 获取自选股 AI 分析历史（按股票分组的时间序列，用于曲线展示）

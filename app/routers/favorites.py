@@ -34,6 +34,7 @@ class UpdateFavoriteRequest(BaseModel):
     notes: Optional[str] = None
     alert_price_high: Optional[float] = None
     alert_price_low: Optional[float] = None
+    is_pinned: Optional[bool] = None
 
 
 class FavoriteStockResponse(BaseModel):
@@ -46,6 +47,8 @@ class FavoriteStockResponse(BaseModel):
     notes: str
     alert_price_high: Optional[float]
     alert_price_low: Optional[float]
+    is_pinned: bool = False
+    sort_order: int = 0
     # 实时数据
     current_price: Optional[float] = None
     change_percent: Optional[float] = None
@@ -124,6 +127,35 @@ async def add_favorite(
         )
 
 
+class ReorderRequest(BaseModel):
+    """重排序自选股请求"""
+    items: List[dict]  # [{"stock_code": "000001", "is_pinned": True}, ...]
+
+
+@router.put("/reorder", response_model=dict)
+async def reorder_favorites(
+    request: ReorderRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """批量保存自选股新顺序（置顶状态同步写入）"""
+    try:
+        success = await favorites_service.reorder_favorites(current_user["id"], request.items)
+        if success:
+            return ok({}, "排序已保存")
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="排序保存失败"
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"排序保存失败: {str(e)}"
+        )
+
+
 @router.put("/{stock_code}", response_model=dict)
 async def update_favorite(
     stock_code: str,
@@ -138,7 +170,8 @@ async def update_favorite(
             tags=request.tags,
             notes=request.notes,
             alert_price_high=request.alert_price_high,
-            alert_price_low=request.alert_price_low
+            alert_price_low=request.alert_price_low,
+            is_pinned=request.is_pinned
         )
 
         if success:

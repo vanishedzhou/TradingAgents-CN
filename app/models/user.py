@@ -68,6 +68,8 @@ class FavoriteStock(BaseModel):
     notes: str = Field(default="", description="用户备注")
     alert_price_high: Optional[float] = Field(None, description="价格上限提醒")
     alert_price_low: Optional[float] = Field(None, description="价格下限提醒")
+    is_pinned: bool = Field(default=False, description="是否置顶")
+    sort_order: int = Field(default=0, description="排列顺序（越小越靠前）")
 
 
 class User(BaseModel):

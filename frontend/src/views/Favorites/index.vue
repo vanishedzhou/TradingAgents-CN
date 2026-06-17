@@ -112,18 +112,29 @@
     <!-- 自选股列表 -->
     <el-card class="favorites-list-card" shadow="never">
       <el-table
-        :data="filteredFavorites"
+        ref="tableRef"
+        :data="displayedFavorites"
         v-loading="loading"
         style="width: 100%"
         @selection-change="handleSelectionChange"
+        @sort-change="handleSortChange"
+        :row-class-name="rowClassName"
       >
         <el-table-column type="selection" width="55" />
+        <el-table-column width="36" align="center">
+          <template #default="{ row }">
+            <span
+              class="drag-handle"
+              :data-stock-code="row.stock_code"
+              title="拖拽调整顺序"
+            >⠿</span>
+          </template>
+        </el-table-column>
         <el-table-column
           prop="stock_code"
           label="股票代码"
           width="120"
-          sortable
-          :sort-method="(a: any, b: any) => sortStr(a.stock_code, b.stock_code)"
+          sortable="custom"
         >
           <template #default="{ row }">
             <el-link type="primary" @click="viewStockDetail(row)">
@@ -136,8 +147,7 @@
           prop="stock_name"
           label="股票名称"
           width="150"
-          sortable
-          :sort-method="(a: any, b: any) => sortStr(a.stock_name, b.stock_name)"
+          sortable="custom"
         >
           <template #default="{ row }">
             <el-link
@@ -154,8 +164,7 @@
           prop="market"
           label="市场"
           width="80"
-          sortable
-          :sort-method="(a: any, b: any) => sortStr(a.market || 'A股', b.market || 'A股')"
+          sortable="custom"
         >
           <template #default="{ row }">
             {{ row.market || 'A股' }}
@@ -165,8 +174,7 @@
           prop="board"
           label="板块"
           width="100"
-          sortable
-          :sort-method="(a: any, b: any) => sortStr(a.board, b.board)"
+          sortable="custom"
         >
           <template #default="{ row }">
             {{ row.board || '-' }}
@@ -176,8 +184,7 @@
           prop="exchange"
           label="交易所"
           width="140"
-          sortable
-          :sort-method="(a: any, b: any) => sortStr(a.exchange, b.exchange)"
+          sortable="custom"
         >
           <template #default="{ row }">
             {{ row.exchange || '-' }}
@@ -188,8 +195,7 @@
           prop="current_price"
           label="当前价格"
           width="100"
-          sortable
-          :sort-method="(a: any, b: any) => sortNum(a.current_price, b.current_price)"
+          sortable="custom"
         >
           <template #default="{ row }">
             <span v-if="row.current_price !== null && row.current_price !== undefined">¥{{ formatPrice(row.current_price) }}</span>
@@ -201,8 +207,7 @@
           prop="change_percent"
           label="涨跌幅"
           width="100"
-          sortable
-          :sort-method="(a: any, b: any) => sortNum(a.change_percent, b.change_percent)"
+          sortable="custom"
         >
           <template #default="{ row }">
             <span
@@ -220,8 +225,7 @@
           label="AI 目标价"
           width="110"
           align="right"
-          sortable
-          :sort-method="(a: any, b: any) => sortNum(a._ai_target_price, b._ai_target_price)"
+          sortable="custom"
         >
           <template #default="{ row }">
             <span v-if="row._ai_target_price !== null && row._ai_target_price !== undefined">
@@ -236,8 +240,7 @@
           label="预计收益率"
           width="110"
           align="right"
-          sortable
-          :sort-method="(a: any, b: any) => sortNum(a._ai_expected_return, b._ai_expected_return)"
+          sortable="custom"
         >
           <template #default="{ row }">
             <span
@@ -254,8 +257,7 @@
           prop="_ai_analyzed_at"
           label="最新分析时间"
           width="160"
-          sortable
-          :sort-method="(a: any, b: any) => sortDate(a._ai_analyzed_at, b._ai_analyzed_at)"
+          sortable="custom"
         >
           <template #default="{ row }">
             <span v-if="row._ai_analyzed_at">
@@ -293,15 +295,14 @@
           prop="added_at"
           label="添加时间"
           width="120"
-          sortable
-          :sort-method="(a: any, b: any) => sortDate(a.added_at, b.added_at)"
+          sortable="custom"
         >
           <template #default="{ row }">
             {{ formatDate(row.added_at) }}
           </template>
         </el-table-column>
 
-        <el-table-column label="操作" width="260" fixed="right">
+        <el-table-column label="操作" width="300" fixed="right">
           <template #default="{ row }">
             <el-button
               type="text"
@@ -326,6 +327,14 @@
               @click="analyzeFavorite(row)"
             >
               分析
+            </el-button>
+            <el-button
+              type="text"
+              size="small"
+              @click="handleTogglePin(row)"
+              :style="row.is_pinned ? 'color: #E6A23C;' : ''"
+            >
+              <el-icon style="margin-right: 2px;"><Top /></el-icon>{{ row.is_pinned ? '取消置顶' : '置顶' }}
             </el-button>
             <el-button
               type="text"
@@ -740,7 +749,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRouter } from 'vue-router'
 import {
@@ -749,7 +758,8 @@ import {
   Refresh,
   Plus,
   Download,
-  DataAnalysis
+  DataAnalysis,
+  Top
 } from '@element-plus/icons-vue'
 import { favoritesApi } from '@/api/favorites'
 import { tagsApi } from '@/api/tags'
@@ -759,6 +769,7 @@ import { configApi } from '@/api/config'
 import { normalizeMarketForAnalysis } from '@/utils/market'
 import { ApiClient } from '@/api/request'
 import AnalysisHistoryChart from './AnalysisHistoryChart.vue'
+import Sortable from 'sortablejs'
 
 import type { FavoriteItem } from '@/api/favorites'
 import { useAuthStore } from '@/stores/auth'
@@ -789,6 +800,11 @@ const selectedTag = ref('')
 const selectedMarket = ref('')
 const selectedBoard = ref('')
 const selectedExchange = ref('')
+
+// 置顶 & 拖拽排序相关状态
+const currentSort = ref<{ prop: string; order: string } | null>(null)
+const tableRef = ref()
+let sortableInstance: any = null
 
 // 批量选择
 const selectedStocks = ref<FavoriteItem[]>([])
@@ -954,6 +970,32 @@ const filteredFavorites = computed<FavoriteItem[]>(() => {
   }
 
   return result
+})
+
+// 按置顶分组 + 组内独立排序的展示计算属性
+const buildComparator = (prop: string, order: string) => {
+  const desc = order === 'descending'
+  return (a: any, b: any) => {
+    const va = (a as any)[prop]
+    const vb = (b as any)[prop]
+    let cmp = 0
+    if (va == null && vb == null) cmp = 0
+    else if (va == null) cmp = 1
+    else if (vb == null) cmp = -1
+    else if (typeof va === 'string') cmp = va.localeCompare(vb, 'zh-CN')
+    else cmp = va - vb
+    return desc ? -cmp : cmp
+  }
+}
+
+const displayedFavorites = computed<FavoriteItem[]>(() => {
+  const items = filteredFavorites.value
+  const pinned = items.filter((i: any) => !!(i as any).is_pinned)
+  const unpinned = items.filter((i: any) => !(i as any).is_pinned)
+  const comparator = currentSort.value
+    ? buildComparator(currentSort.value.prop, currentSort.value.order)
+    : (a: any, b: any) => ((a as any).sort_order ?? 0) - ((b as any).sort_order ?? 0)
+  return [...pinned.sort(comparator), ...unpinned.sort(comparator)]
 })
 
 // 判断选中的股票是否都是A股
@@ -1606,37 +1648,73 @@ const aiActionType = (action: string | null): 'success' | 'danger' | 'info' => {
   return 'info'
 }
 
-// ---- 表格排序辅助函数 ----
-// 空值统一排到末尾（asc 升序时在底，desc 降序时靠 el-table 自动翻转也能保持在末尾的语义）
-// 只要比较器对 null/undefined 返回一个特殊值就行。这里采取：null 视为"无穷大"在升序中垫底。
-const sortNum = (a: any, b: any): number => {
-  const na = Number(a)
-  const nb = Number(b)
-  const aBad = !Number.isFinite(na)
-  const bBad = !Number.isFinite(nb)
-  if (aBad && bBad) return 0
-  if (aBad) return 1
-  if (bBad) return -1
-  return na - nb
+// ---- 置顶 & 拖拽排序 ----
+const handleSortChange = ({ prop, order }: any) => {
+  currentSort.value = order ? { prop, order } : null
 }
-const sortStr = (a: any, b: any): number => {
-  const sa = a == null ? '' : String(a)
-  const sb = b == null ? '' : String(b)
-  // 空值排后面
-  if (!sa && !sb) return 0
-  if (!sa) return 1
-  if (!sb) return -1
-  return sa.localeCompare(sb, 'zh-CN')
+
+const rowClassName = ({ row }: { row: any }) => (row.is_pinned ? 'pinned-row' : '')
+
+const handleTogglePin = async (row: any) => {
+  const newPinned = !row.is_pinned
+  const orig = favorites.value.find((f: any) => f.stock_code === row.stock_code)
+  if (orig) (orig as any).is_pinned = newPinned
+  try {
+    await favoritesApi.togglePin(row.stock_code, newPinned)
+    const pinned = favorites.value.filter((f: any) => !!(f as any).is_pinned)
+    const unpinned = favorites.value.filter((f: any) => !(f as any).is_pinned)
+    ;[...pinned, ...unpinned].forEach((f: any, idx) => { (f as any).sort_order = idx })
+    await favoritesApi.reorder([...pinned, ...unpinned].map((f: any) => ({
+      stock_code: (f.stock_code || '') as string,
+      is_pinned: !!(f as any).is_pinned
+    })))
+  } catch (e: any) {
+    ElMessage.error('置顶操作失败')
+    if (orig) (orig as any).is_pinned = !newPinned
+  }
 }
-const sortDate = (a: any, b: any): number => {
-  const ta = a ? new Date(a).getTime() : NaN
-  const tb = b ? new Date(b).getTime() : NaN
-  const aBad = Number.isNaN(ta)
-  const bBad = Number.isNaN(tb)
-  if (aBad && bBad) return 0
-  if (aBad) return 1
-  if (bBad) return -1
-  return ta - tb
+
+const initSortable = () => {
+  if (!tableRef.value) return
+  const tbody = (tableRef.value.$el as HTMLElement).querySelector('.el-table__body-wrapper tbody') as HTMLElement
+  if (!tbody) return
+  if (sortableInstance) { sortableInstance.destroy(); sortableInstance = null }
+  sortableInstance = Sortable.create(tbody, {
+    handle: '.drag-handle',
+    animation: 150,
+    ghostClass: 'sortable-ghost',
+    chosenClass: 'sortable-chosen',
+    onMove: (evt: any): boolean => {
+      if (currentSort.value) return false
+      const rows = Array.from(tbody.children)
+      const dragIdx = rows.indexOf(evt.dragged)
+      const relIdx  = rows.indexOf(evt.related)
+      const dragItem = displayedFavorites.value[dragIdx]
+      const relItem  = displayedFavorites.value[relIdx]
+      if (dragItem && relItem && !!(dragItem as any).is_pinned !== !!(relItem as any).is_pinned) return false
+      return true
+    },
+    onEnd: async (evt: any) => {
+      const { oldIndex, newIndex } = evt
+      if (oldIndex === newIndex) return
+      const displayed = [...displayedFavorites.value]
+      const [moved] = displayed.splice(oldIndex, 1)
+      displayed.splice(newIndex, 0, moved)
+      displayed.forEach((item: any, idx) => {
+        const orig = favorites.value.find((f: any) => f.stock_code === item.stock_code)
+        if (orig) (orig as any).sort_order = idx
+      })
+      try {
+        await favoritesApi.reorder(displayed.map((i: any) => ({
+          stock_code: (i.stock_code || '') as string,
+          is_pinned: !!(i as any).is_pinned
+        })))
+      } catch (e: any) {
+        ElMessage.error('排序保存失败')
+        await loadFavorites()
+      }
+    }
+  })
 }
 
 // 生命周期
@@ -1646,7 +1724,14 @@ onMounted(() => {
     loadFavorites()
     loadUserTags()
   }
+  nextTick(initSortable)
 })
+
+onUnmounted(() => {
+  if (sortableInstance) { sortableInstance.destroy(); sortableInstance = null }
+})
+
+watch(favorites, () => nextTick(initSortable))
 </script>
 
 <style lang="scss" scoped>
@@ -1718,6 +1803,34 @@ onMounted(() => {
 
     .text-green {
       color: #67c23a;
+    }
+
+    /* 置顶行背景 */
+    :deep(.pinned-row td.el-table__cell) {
+      background-color: #fdf6ec;
+    }
+    :deep(.pinned-row:hover td.el-table__cell) {
+      background-color: #faecd8 !important;
+    }
+
+    /* 拖拽占位 & 选中状态 */
+    :deep(.sortable-ghost td) {
+      opacity: 0.4;
+      background-color: #ecf5ff !important;
+    }
+    :deep(.sortable-chosen td) {
+      background-color: #f0f9ff !important;
+    }
+
+    /* 拖拽手柄 */
+    .drag-handle {
+      cursor: grab;
+      color: #c0c4cc;
+      user-select: none;
+      font-size: 16px;
+      &:active {
+        cursor: grabbing;
+      }
     }
   }
 }
