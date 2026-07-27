@@ -55,6 +55,7 @@ class FavoritesService:
             "current_price": None,
             "change_percent": None,
             "volume": None,
+            "quote_updated_at": None,
         }
 
     async def get_user_favorites(self, user_id: str) -> List[Dict[str, Any]]:
@@ -153,7 +154,7 @@ class FavoritesService:
                     coll = db["market_quotes"]
                     cursor = coll.find(
                         {"code": {"$in": a_codes}},
-                        {"code": 1, "close": 1, "pct_chg": 1, "amount": 1}
+                        {"code": 1, "close": 1, "pct_chg": 1, "amount": 1, "updated_at": 1}
                     )
                     docs = await cursor.to_list(length=None)
                     quotes_a = {str(d.get("code")).zfill(6): d for d in (docs or [])}
@@ -163,7 +164,7 @@ class FavoritesService:
                     coll = db["market_quotes_us"]
                     cursor = coll.find(
                         {"code": {"$in": us_codes}},
-                        {"code": 1, "close": 1, "pct_chg": 1, "volume": 1}
+                        {"code": 1, "close": 1, "pct_chg": 1, "volume": 1, "updated_at": 1}
                     )
                     docs = await cursor.to_list(length=None)
                     quotes_us = {str(d.get("code")).upper(): d for d in (docs or [])}
@@ -173,7 +174,7 @@ class FavoritesService:
                     coll = db["market_quotes_hk"]
                     cursor = coll.find(
                         {"code": {"$in": hk_codes}},
-                        {"code": 1, "close": 1, "pct_chg": 1, "volume": 1}
+                        {"code": 1, "close": 1, "pct_chg": 1, "volume": 1, "updated_at": 1}
                     )
                     docs = await cursor.to_list(length=None)
                     quotes_hk = {str(d.get("code")).zfill(5): d for d in (docs or [])}
@@ -194,6 +195,15 @@ class FavoritesService:
                     if q:
                         it["current_price"] = q.get("close")
                         it["change_percent"] = q.get("pct_chg")
+                        # 行情时效：把最后更新时间返回给前端，用于标注是否过期
+                        _qt = q.get("updated_at")
+                        if isinstance(_qt, datetime):
+                            if _qt.tzinfo is None:
+                                from datetime import timezone as _tz
+                                _qt = _qt.replace(tzinfo=_tz.utc)
+                            it["quote_updated_at"] = _qt.isoformat()
+                        else:
+                            it["quote_updated_at"] = str(_qt) if _qt else None
 
                 # 兜底：对未命中的 A 股代码用在线源补齐；美股/港股暂不在线兜底（需用户点击同步）
                 missing_a = [c for c in a_codes if c not in quotes_a]

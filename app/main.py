@@ -26,7 +26,7 @@ import asyncio
 from pathlib import Path
 
 from app.core.config import settings
-from app.core.database import init_db, close_db
+from app.core.database import init_db, close_db, get_mongo_db
 from app.core.logging_config import setup_logging
 from app.routers import auth_db as auth, analysis, screening, queue, sse, health, favorites, config, reports, database, operation_logs, tags, tushare_init, akshare_init, baostock_init, historical_data, multi_period_sync, financial_data, news_data, social_media, internal_messages, usage_statistics, model_capabilities, cache, logs
 from app.routers import sync as sync_router, multi_source_sync
@@ -552,10 +552,49 @@ async def lifespan(app: FastAPI):
             except Exception as e:
                 logger.error(f"❌ 新闻同步失败: {e}", exc_info=True)
 
-        # ==================== 港股/美股数据配置 ====================
-        # 港股和美股采用按需获取+缓存模式，不再配置定时同步任务
-        logger.info("🇭🇰 港股数据采用按需获取+缓存模式")
-        logger.info("🇺🇸 美股数据采用按需获取+缓存模式")
+        # ==================== 港股/美股行情定时同步 ====================
+        # 定时刷新"全体用户自选股"里的港股/美股实时行情，避免 market_quotes_hk /
+        # market_quotes_us 因无人手动点「同步」而长期停留在陈旧价格。
+        async def run_favorites_hk_us_quotes_sync():
+            """收集所有用户自选股里的港股/美股代码，批量同步实时行情。"""
+            try:
+                db = get_mongo_db()
+                hk_symbols: set[str] = set()
+                us_symbols: set[str] = set()
+                async for doc in db.user_favorites.find({}, {"favorites": 1}):
+                    for f in (doc.get("favorites") or []):
+                        code = f.get("stock_code")
+                        market = f.get("market")
+                        if not code:
+                            continue
+                        if market == "港股":
+                            hk_symbols.add(code)
+                        elif market == "美股":
+                            us_symbols.add(code)
+
+                if hk_symbols:
+                    from app.worker.hk_sync_service import get_hk_sync_service
+                    hk_service = await get_hk_sync_service()
+                    hk_res = await hk_service.sync_realtime_quotes(symbols=list(hk_symbols), force=True)
+                    logger.info(f"✅ [定时] 港股自选股行情同步: {hk_res.get('success_count', 0)}/{len(hk_symbols)}")
+                if us_symbols:
+                    from app.worker.us_sync_service import get_us_sync_service
+                    us_service = await get_us_sync_service()
+                    us_res = await us_service.sync_realtime_quotes(symbols=list(us_symbols), force=True)
+                    logger.info(f"✅ [定时] 美股自选股行情同步: {us_res.get('success_count', 0)}/{len(us_symbols)}")
+                if not hk_symbols and not us_symbols:
+                    logger.debug("ℹ️ [定时] 无港股/美股自选股，跳过行情同步")
+            except Exception as e:
+                logger.error(f"❌ [定时] 港股/美股自选股行情同步失败: {e}", exc_info=True)
+
+        _hk_us_interval = int(getattr(settings, "FAVORITES_HK_US_QUOTES_INTERVAL_SECONDS", 900))
+        scheduler.add_job(
+            run_favorites_hk_us_quotes_sync,
+            IntervalTrigger(seconds=_hk_us_interval, timezone=settings.TIMEZONE),
+            id="favorites_hk_us_quotes_sync",
+            name="港股/美股自选股行情同步",
+        )
+        logger.info(f"🌏 港股/美股自选股行情定时同步已配置: 每 {_hk_us_interval} 秒")
 
         scheduler.add_job(
             run_news_sync,

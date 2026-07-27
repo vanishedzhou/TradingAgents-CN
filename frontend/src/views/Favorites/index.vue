@@ -171,34 +171,22 @@
           </template>
         </el-table-column>
         <el-table-column
-          prop="board"
-          label="板块"
-          width="100"
-          sortable="custom"
-        >
-          <template #default="{ row }">
-            {{ row.board || '-' }}
-          </template>
-        </el-table-column>
-        <el-table-column
-          prop="exchange"
-          label="交易所"
-          width="140"
-          sortable="custom"
-        >
-          <template #default="{ row }">
-            {{ row.exchange || '-' }}
-          </template>
-        </el-table-column>
-
-        <el-table-column
           prop="current_price"
           label="当前价格"
-          width="100"
+          width="120"
           sortable="custom"
         >
           <template #default="{ row }">
-            <span v-if="row.current_price !== null && row.current_price !== undefined">¥{{ formatPrice(row.current_price) }}</span>
+            <span v-if="row.current_price !== null && row.current_price !== undefined">
+              ¥{{ formatPrice(row.current_price) }}
+              <el-tooltip
+                v-if="isQuoteStale(row.quote_updated_at)"
+                :content="`行情更新于 ${formatQuoteTime(row.quote_updated_at)}，可能已过期，请点击「同步实时行情」`"
+                placement="top"
+              >
+                <span style="color:#e6a23c;cursor:help;font-size:12px;">⚠</span>
+              </el-tooltip>
+            </span>
             <span v-else>-</span>
           </template>
         </el-table-column>
@@ -217,6 +205,21 @@
               {{ formatPercent(row.change_percent) }}
             </span>
             <span v-else>-</span>
+          </template>
+        </el-table-column>
+
+        <el-table-column
+          prop="_ai_analysis_price"
+          label="分析时股价"
+          width="110"
+          align="right"
+          sortable="custom"
+        >
+          <template #default="{ row }">
+            <span v-if="row._ai_analysis_price !== null && row._ai_analysis_price !== undefined">
+              {{ formatPrice(row._ai_analysis_price) }}
+            </span>
+            <span v-else style="color: var(--el-text-color-placeholder)">-</span>
           </template>
         </el-table-column>
 
@@ -1044,6 +1047,7 @@ const loadLatestAnalysisForFavorites = async () => {
       const p = code ? latestByCode[code] : null
       return {
         ...f,
+        _ai_analysis_price: p?.current_price ?? null,
         _ai_target_price: p?.target_price ?? null,
         _ai_expected_return: p?.expected_return ?? null,
         _ai_analyzed_at: p?.analyzed_at ?? null,
@@ -1621,6 +1625,22 @@ const formatPercent = (value: any): string => {
   if (!Number.isFinite(n)) return '-'
   const sign = n > 0 ? '+' : ''
   return `${sign}${n.toFixed(2)}%`
+}
+
+// 行情是否过期：超过 30 分钟未更新即视为过期
+const isQuoteStale = (quoteUpdatedAt: any): boolean => {
+  if (!quoteUpdatedAt) return false
+  const t = new Date(quoteUpdatedAt).getTime()
+  if (!Number.isFinite(t)) return false
+  const STALE_MS = 30 * 60 * 1000
+  return Date.now() - t > STALE_MS
+}
+
+const formatQuoteTime = (iso: any): string => {
+  if (!iso) return '-'
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return '-'
+  return d.toLocaleString('zh-CN')
 }
 
 const formatDate = (dateStr: string) => {
