@@ -147,7 +147,7 @@ class ChatDeepSeek(ChatOpenAI):
                     "(设置 -> 大模型厂家) 或设置 DEEPSEEK_API_KEY 环境变量。"
                 )
         
-        # 初始化父类
+        # 初始化父类（self.model_name 保留为 base 名，HTTP 请求里发给 DeepSeek 的是 base 名）
         super().__init__(
             model=model,
             openai_api_key=api_key,
@@ -156,9 +156,14 @@ class ChatDeepSeek(ChatOpenAI):
             max_tokens=max_tokens,
             **kwargs
         )
-        
-        # 保存原始模型名（含思考后缀，供统计用）；父类使用去除后缀的 base 名
-        self.model_name = original_model if thinking_extra_body else model
+
+        # 单独保存原始模型名（含思考后缀），仅供 token 统计用
+        # 必须用 object.__setattr__ 绕过 pydantic 校验
+        object.__setattr__(
+            self,
+            '_tracking_model_name',
+            original_model if thinking_extra_body else model,
+        )
 
     def _generate(
         self,
@@ -213,7 +218,7 @@ class ChatDeepSeek(ChatOpenAI):
                     # 记录使用量
                     usage_record = token_tracker.track_usage(
                         provider="deepseek",
-                        model_name=self.model_name,
+                        model_name=getattr(self, '_tracking_model_name', self.model_name),
                         input_tokens=input_tokens,
                         output_tokens=output_tokens,
                         session_id=session_id,
@@ -229,7 +234,7 @@ class ChatDeepSeek(ChatOpenAI):
                         # 使用统一日志管理器的Token记录方法
                         logger_manager = get_logger_manager()
                         logger_manager.log_token_usage(
-                            logger, "deepseek", self.model_name,
+                            logger, "deepseek", getattr(self, '_tracking_model_name', self.model_name),
                             input_tokens, output_tokens, usage_record.cost,
                             session_id
                         )
