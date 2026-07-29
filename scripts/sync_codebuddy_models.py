@@ -41,32 +41,28 @@ from pymongo import MongoClient
 CODEBUDDY_MODEL_SPECS = [
     # (model_name, display_name, description, capability_level)
     # Claude 系列
-    ('claude-opus-4.6',      'Claude Opus 4.6',            'Claude Opus 4.6 (CodeBuddy, 旗舰)',            5),
-    ('claude-opus-4.6-1m',   'Claude Opus 4.6 (1M)',       'Claude Opus 4.6 1M 上下文 (CodeBuddy)',        5),
-    ('claude-sonnet-4.6',    'Claude Sonnet 4.6',          'Claude Sonnet 4.6 (CodeBuddy, 平衡)',          5),
-    ('claude-sonnet-4.6-1m', 'Claude Sonnet 4.6 (1M)',     'Claude Sonnet 4.6 1M 上下文 (CodeBuddy)',      5),
-    ('claude-opus-4.5',      'Claude Opus 4.5',            'Claude Opus 4.5 (CodeBuddy, 前代旗舰)',        5),
-    ('claude-haiku-4.5',     'Claude Haiku 4.5',           'Claude Haiku 4.5 (CodeBuddy, 快速)',           4),
+    ('claude-opus-4.8',      'Claude-Opus-4.8',            'Claude-Opus-4.8 (CodeBuddy, 旗舰)',              5),
+    ('claude-opus-4.8-1m',   'Claude-Opus-4.8 (1M)',       'Claude-Opus-4.8 1M 上下文 (CodeBuddy)',          5),
+    ('claude-sonnet-5',      'Claude-Sonnet-5',            'Claude-Sonnet-5 (CodeBuddy, 平衡)',              5),
+    ('claude-sonnet-5-1m',   'Claude-Sonnet-5-1M',         'Claude-Sonnet-5 1M 上下文 (CodeBuddy)',          5),
     # GPT
-    ('gpt-5.4',              'GPT-5.4',                    'GPT-5.4 (CodeBuddy, OpenAI 旗舰)',             5),
+    ('gpt-5.6-sol',          'GPT-5.6-Sol',                'GPT-5.6-Sol (CodeBuddy, OpenAI)',                5),
+    ('gpt-5.6-terra',        'GPT-5.6-Terra',              'GPT-5.6-Terra (CodeBuddy, OpenAI)',              5),
+    ('gpt-5.6-luna',         'GPT-5.6-Luna',               'GPT-5.6-Luna (CodeBuddy, OpenAI)',               5),
     # Gemini
-    ('gemini-2.5-pro',       'Gemini 2.5 Pro',             'Gemini 2.5 Pro (CodeBuddy 代理)',              5),
-    ('gemini-2.5-flash',     'Gemini 2.5 Flash',           'Gemini 2.5 Flash (CodeBuddy 代理, 快速)',      4),
+    ('gemini-3.5-flash',     'Gemini-3.5-Flash',           'Gemini-3.5-Flash (CodeBuddy 代理)',              4),
     # 腾讯混元
-    ('hunyuan-2.0-instruct', 'Hunyuan 2.0 Instruct',       '腾讯混元 2.0 指令 (CodeBuddy)',                4),
-    ('hunyuan-2.0-thinking', 'Hunyuan 2.0 Thinking',       '腾讯混元 2.0 推理 (CodeBuddy)',                4),
+    ('hy3',                  'Hy3',                        '腾讯混元 Hy3 (CodeBuddy)',                       4),
     # 智谱 GLM (CodeBuddy 版本)
-    ('glm-5.0-turbo',        'GLM 5.0 Turbo',              'GLM 5.0 Turbo (CodeBuddy, 智谱快速)',          3),
-    ('glm-5.0',              'GLM 5.0',                    'GLM 5.0 (CodeBuddy, 智谱旗舰)',                4),
-    ('glm-4.7',              'GLM 4.7',                    'GLM 4.7 (CodeBuddy, 智谱经典)',                4),
+    ('glm-5v-turbo',         'GLM-5v-Turbo',               'GLM-5v-Turbo (CodeBuddy, 智谱快速)',             3),
+    ('glm-5.2',              'GLM-5.2',                    'GLM-5.2 (CodeBuddy, 智谱旗舰)',                  4),
     # DeepSeek (CodeBuddy 版本)
-    ('deepseek-v3',          'DeepSeek V3',                'DeepSeek V3 (CodeBuddy, 通用)',                4),
-    ('deepseek-v3-0324',     'DeepSeek V3 (0324)',         'DeepSeek V3 0324 更新版 (CodeBuddy)',          4),
-    ('deepseek-r1',          'DeepSeek R1',                'DeepSeek R1 (CodeBuddy, 推理)',                5),
+    ('deepseek-v4-flash',    'Deepseek-V4-Flash',          'Deepseek-V4-Flash (CodeBuddy, 快速)',            4),
+    ('deepseek-v4-pro',      'Deepseek-V4-Pro',            'Deepseek-V4-Pro (CodeBuddy, 旗舰)',              5),
     # Kimi
-    ('kimi-k2.5',            'Kimi K2.5',                  'Kimi K2.5 (CodeBuddy, 月之暗面)',              4),
+    ('kimi-k3',              'Kimi-K3',                    'Kimi-K3 (CodeBuddy, 月之暗面)',                  4),
     # MiniMax
-    ('minimax-m2.5',         'MiniMax M2.5',               'MiniMax M2.5 (CodeBuddy)',                     4),
+    ('minimax-m3',           'MiniMax-M3',                 'MiniMax-M3 (CodeBuddy)',                         4),
 ]
 
 

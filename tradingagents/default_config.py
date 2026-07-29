@@ -10,8 +10,8 @@ DEFAULT_CONFIG = {
     ),
     # LLM settings
     "llm_provider": "codebuddy",
-    "deep_think_llm": "claude-opus-4.6-1m",
-    "quick_think_llm": "claude-opus-4.6-1m",
+    "deep_think_llm": "claude-opus-4.8-1m",
+    "quick_think_llm": "claude-opus-4.8-1m",
     "backend_url": "https://copilot.tencent.com/v2",
     # Debate and discussion settings
     "max_debate_rounds": 1,

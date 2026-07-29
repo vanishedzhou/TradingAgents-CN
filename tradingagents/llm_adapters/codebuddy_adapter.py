@@ -5,20 +5,19 @@ Base URL : https://copilot.tencent.com
 Endpoint : /v2/chat/completions  (仅支持 stream=True)
 认证方式  : Authorization: Bearer <API_KEY>
 
-可用模型（截至 2026-03-30）:
-  腾讯混元 : hunyuan-2.0-instruct, hunyuan-2.0-thinking
-  智谱 GLM : glm-5.0-turbo, glm-5.0, glm-4.7
-  DeepSeek : deepseek-v3, deepseek-v3-0324, deepseek-r1
-  Claude   : claude-opus-4.6, claude-opus-4.6-1m, claude-sonnet-4.6,
-             claude-sonnet-4.6-1m, claude-opus-4.5, claude-haiku-4.5
-  GPT      : gpt-5.4
-  Kimi     : kimi-k2.5
-  MiniMax  : minimax-m2.5
-  Gemini   : gemini-2.5-pro, gemini-2.5-flash
-  通用别名  : default (→glm-4.7), auto (→自动路由)
+可用模型（截至 2026-07-29）:
+  腾讯混元 : hy3
+  智谱 GLM : glm-5v-turbo, glm-5.2
+  DeepSeek : deepseek-v4-flash, deepseek-v4-pro
+  Claude   : claude-sonnet-5, claude-sonnet-5-1m, claude-opus-4.8,
+             claude-opus-4.8-1m
+  GPT      : gpt-5.6-sol, gpt-5.6-terra, gpt-5.6-luna
+  Kimi     : kimi-k3
+  MiniMax  : minimax-m3
+  Gemini   : gemini-3.5-flash
 
 注意事项:
-  - 模型名大小写敏感，必须使用小写（如 claude-opus-4.6）
+  - 模型名大小写敏感，必须使用小写（如 claude-opus-4.8）
   - stream 必须为 True，不支持非流式调用
   - 接口路径为 /v2/chat/completions，与 OpenAI 格式兼容
 """
@@ -38,35 +37,28 @@ CODEBUDDY_API_KEY_ENV = "CODEBUDDY_API_KEY"
 # 支持的模型列表（可用于校验）
 CODEBUDDY_MODELS = [
     # 腾讯混元
-    "hunyuan-2.0-instruct",
-    "hunyuan-2.0-thinking",
+    "hy3",
     # 智谱 GLM
-    "glm-5.0-turbo",
-    "glm-5.0",
-    "glm-4.7",
+    "glm-5v-turbo",
+    "glm-5.2",
     # DeepSeek
-    "deepseek-v3",
-    "deepseek-v3-0324",
-    "deepseek-r1",
+    "deepseek-v4-flash",
+    "deepseek-v4-pro",
     # Claude
-    "claude-opus-4.6",
-    "claude-opus-4.6-1m",
-    "claude-sonnet-4.6",
-    "claude-sonnet-4.6-1m",
-    "claude-opus-4.5",
-    "claude-haiku-4.5",
+    "claude-sonnet-5",
+    "claude-sonnet-5-1m",
+    "claude-opus-4.8",
+    "claude-opus-4.8-1m",
     # GPT
-    "gpt-5.4",
+    "gpt-5.6-sol",
+    "gpt-5.6-terra",
+    "gpt-5.6-luna",
     # Kimi
-    "kimi-k2.5",
+    "kimi-k3",
     # MiniMax
-    "minimax-m2.5",
+    "minimax-m3",
     # Google Gemini
-    "gemini-2.5-pro",
-    "gemini-2.5-flash",
-    # 通用别名
-    "default",
-    "auto",
+    "gemini-3.5-flash",
 ]
 
 
@@ -84,7 +76,7 @@ class ChatCodeBuddy(OpenAICompatibleBase):
 
     def __init__(
         self,
-        model: str = "hunyuan-2.0-instruct",
+        model: str = "hy3",
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
         temperature: float = 0.1,
@@ -104,7 +96,7 @@ class ChatCodeBuddy(OpenAICompatibleBase):
         resolved_base_url = base_url or CODEBUDDY_BASE_URL
 
         # 模型名大小写校验（非硬性阻断，只是日志提醒）
-        if model != model.lower() and model not in ("default", "auto"):
+        if model != model.lower():
             logger.warning(
                 f"⚠️ [CodeBuddy] 模型名 '{model}' 包含大写，"
                 f"CodeBuddy API 大小写敏感，建议改为 '{model.lower()}'"

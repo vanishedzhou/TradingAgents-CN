@@ -417,31 +417,27 @@ const availableModels = computed(() => {
     ],
     codebuddy: [
       // Claude
-      { label: 'Claude Opus 4.6 - 旗舰', value: 'claude-opus-4.6' },
-      { label: 'Claude Opus 4.6 (1M 上下文)', value: 'claude-opus-4.6-1m' },
-      { label: 'Claude Sonnet 4.6 - 平衡', value: 'claude-sonnet-4.6' },
-      { label: 'Claude Sonnet 4.6 (1M 上下文)', value: 'claude-sonnet-4.6-1m' },
-      { label: 'Claude Opus 4.5 - 前代旗舰', value: 'claude-opus-4.5' },
-      { label: 'Claude Haiku 4.5 - 快速', value: 'claude-haiku-4.5' },
+      { label: 'Claude-Opus-4.8 - 旗舰', value: 'claude-opus-4.8' },
+      { label: 'Claude-Opus-4.8 (1M context)', value: 'claude-opus-4.8-1m' },
+      { label: 'Claude-Sonnet-5 - 平衡', value: 'claude-sonnet-5' },
+      { label: 'Claude-Sonnet-5-1M', value: 'claude-sonnet-5-1m' },
       // GPT
-      { label: 'GPT-5.4 - OpenAI 旗舰', value: 'gpt-5.4' },
+      { label: 'GPT-5.6-Sol', value: 'gpt-5.6-sol' },
+      { label: 'GPT-5.6-Terra', value: 'gpt-5.6-terra' },
+      { label: 'GPT-5.6-Luna', value: 'gpt-5.6-luna' },
       // Gemini (代理)
-      { label: 'Gemini 2.5 Pro (代理)', value: 'gemini-2.5-pro' },
-      { label: 'Gemini 2.5 Flash (代理)', value: 'gemini-2.5-flash' },
-      // 国产
-      { label: 'Hunyuan 2.0 Instruct - 腾讯混元', value: 'hunyuan-2.0-instruct' },
-      { label: 'Hunyuan 2.0 Thinking - 腾讯混元推理', value: 'hunyuan-2.0-thinking' },
-      { label: 'GLM 5.0 Turbo - 智谱快速', value: 'glm-5.0-turbo' },
-      { label: 'GLM 5.0 - 智谱旗舰', value: 'glm-5.0' },
-      { label: 'GLM 4.7 - 智谱经典', value: 'glm-4.7' },
-      { label: 'DeepSeek V3', value: 'deepseek-v3' },
-      { label: 'DeepSeek V3 (0324)', value: 'deepseek-v3-0324' },
-      { label: 'DeepSeek R1 - 推理', value: 'deepseek-r1' },
-      { label: 'Kimi K2.5 - 月之暗面', value: 'kimi-k2.5' },
-      { label: 'MiniMax M2.5', value: 'minimax-m2.5' },
-      // 别名
-      { label: 'Default - 默认路由 (→ glm-4.7)', value: 'default' },
-      { label: 'Auto - 自动路由', value: 'auto' }
+      { label: 'Gemini-3.5-Flash', value: 'gemini-3.5-flash' },
+      // 腾讯混元
+      { label: 'Hy3 - 腾讯混元', value: 'hy3' },
+      // 智谱 GLM
+      { label: 'GLM-5v-Turbo', value: 'glm-5v-turbo' },
+      { label: 'GLM-5.2', value: 'glm-5.2' },
+      // DeepSeek
+      { label: 'Deepseek-V4-Flash', value: 'deepseek-v4-flash' },
+      { label: 'Deepseek-V4-Pro', value: 'deepseek-v4-pro' },
+      // Kimi / MiniMax
+      { label: 'Kimi-K3 - 月之暗面', value: 'kimi-k3' },
+      { label: 'MiniMax-M3', value: 'minimax-m3' }
     ]
   }
   return models[provider] || []
